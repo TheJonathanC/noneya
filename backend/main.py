@@ -271,6 +271,7 @@ app = FastAPI(
     description="Automated Component Quality Inspection and Diagnostic Pipeline",
     version="1.0.0",
     lifespan=lifespan,
+    debug=True,
 )
 
 # Enable CORS for Next.js frontend (default dev port 3000 or custom ports)
@@ -585,8 +586,7 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
 
 @app.post("/api/inspect")
 async def inspect_batch(
-    files: Optional[List[UploadFile]] = File(None),
-    file: Optional[UploadFile] = File(None),
+    files: List[UploadFile] = File(...),
     batch_id: str = "BATCH-2026-X89"
 ):
     """
@@ -598,19 +598,11 @@ async def inspect_batch(
       - STAGE 4: Gemini Incident Report Structuring
     """
     try:
-        file_list: List[UploadFile] = []
-        if files:
-            file_list.extend(files)
-        if file:
-            file_list.append(file)
-        if not file_list:
-            raise HTTPException(status_code=400, detail="No files provided in inspection request.")
-
         batch_results = []
         m1 = model1 or init_model1() or load_classifier()
         m2 = model2 or init_model2()
 
-        for file_item in file_list:
+        for file_item in files:
             fname = file_item.filename or "component.jpg"
             try:
                 content = await file_item.read()
@@ -730,7 +722,13 @@ async def inspect_batch(
         }
     except Exception as err:
         logger.exception(f"Unexpected error in inspect_batch: {err}")
-        raise HTTPException(status_code=500, detail=str(err))
+        return {
+            "status": "ERROR",
+            "error": str(err),
+            "traceback": traceback.format_exc(),
+            "batch_id": batch_id,
+            "results": [],
+        }
 
 
 # ---------------------------------------------------------
