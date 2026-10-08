@@ -82,3 +82,8 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+install-frontend-ui-animator.bat
+
+
+.agents/

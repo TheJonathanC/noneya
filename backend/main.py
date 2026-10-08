@@ -650,6 +650,7 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
             return_array=True,
         )
 
+        spots = extract_hotspots_from_heatmap(heatmap_2d, is_defect=True)
         response_payload["vision_results"] = {
             "has_defect": True,
             "defect_type": scanned_parts[def_idx].get("defect_type", "Defect") if def_idx < len(scanned_parts) else "Defect",
@@ -657,7 +658,10 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
             "part_index": def_idx,
             "filename": defective_file.filename or f"part_{def_idx + 1}.png",
             "original_image_base64": orig_b64,
+            "original_url": orig_b64,
             "heatmap_image_base64": heatmap_b64,
+            "heatmap_png_url": heatmap_b64,
+            "hotspots": spots,
             "segmentation_instances": generate_segmentation_instances(
                 defect_type=scanned_parts[def_idx].get("defect_type", "porosity") if def_idx < len(scanned_parts) else "porosity",
                 is_defective=True,
@@ -931,11 +935,15 @@ async def test_classification(file: UploadFile = File(...)):
         is_normal=not is_defect,
         return_array=True,
     )
+    spots = extract_hotspots_from_heatmap(heatmap_2d, is_defect=is_defect)
     res_payload["vision_results"] = {
         "has_defect": is_defect,
         "defect_type": "Defective Part" if is_defect else "Nominal / Baseline",
         "original_image_base64": orig_b64,
+        "original_url": orig_b64,
         "heatmap_image_base64": heatmap_b64,
+        "heatmap_png_url": heatmap_b64,
+        "hotspots": spots,
         "segmentation_instances": generate_segmentation_instances(
             defect_type="Defective Part" if is_defect else "nominal",
             is_defective=is_defect,
@@ -1177,13 +1185,82 @@ def extract_gradcam_mask(model, input_tensor, target_class: int = 1) -> "torch.T
 
 
 def encode_pil_to_base64_data_uri(img: Image.Image, format: str = "JPEG", quality: int = 85) -> str:
-    """Encodes a PIL Image to a JPEG Base64 data URI string."""
+    """Encodes a PIL Image to a Base64 data URI string."""
     buf = io.BytesIO()
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-    img.save(buf, format=format, quality=quality)
+    if format.upper() == "PNG":
+        img.save(buf, format="PNG")
+        mime = "image/png"
+    else:
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.save(buf, format=format, quality=quality)
+        mime = "image/jpeg"
     b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{b64_str}"
+    return f"data:{mime};base64,{b64_str}"
+
+
+def extract_hotspots_from_heatmap(
+    heatmap_2d: Optional[np.ndarray],
+    is_defect: bool = True,
+    default_center: tuple = (0.52, 0.48),
+    default_zone: str = "hub",
+    default_severity: str = "Critical",
+) -> List[Dict[str, Any]]:
+    """
+    Extracts structured hotspot objects: [{x, y, zone, severity, area_frac, peak_z, score}].
+    Zones are calibrated concentric regions: hub, vane cavity, cavity edge, flange, rim.
+    """
+    if not is_defect or heatmap_2d is None:
+        return []
+
+    h, w = heatmap_2d.shape[:2]
+    max_val = float(np.max(heatmap_2d))
+    if max_val < 0.15:
+        return []
+
+    if HAS_CV2 and cv2 is not None:
+        _, _, _, (max_x, max_y) = cv2.minMaxLoc(heatmap_2d.astype(np.float32))
+    else:
+        max_idx = np.unravel_index(np.argmax(heatmap_2d), heatmap_2d.shape)
+        max_y, max_x = int(max_idx[0]), int(max_idx[1])
+
+    cx_frac = round(float(max_x) / float(w), 3)
+    cy_frac = round(float(max_y) / float(h), 3)
+
+    # Compute radial distance from part center (0.5, 0.5)
+    r = np.hypot(cx_frac - 0.5, cy_frac - 0.5)
+    if r < 0.14:
+        zone = "hub"
+    elif r < 0.26:
+        zone = "vane cavity"
+    elif r < 0.33:
+        zone = "cavity edge"
+    elif r < 0.42:
+        zone = "flange"
+    else:
+        zone = "rim"
+
+    area_frac = round(float(np.mean(heatmap_2d > 0.40)), 4)
+    area_frac = max(area_frac, 0.0028)
+
+    if max_val >= 0.82:
+        sev = "Critical"
+    elif max_val >= 0.62:
+        sev = "High"
+    elif max_val >= 0.42:
+        sev = "Medium"
+    else:
+        sev = "Low"
+
+    return [{
+        "x": cx_frac,
+        "y": cy_frac,
+        "zone": zone,
+        "severity": sev,
+        "area_frac": area_frac,
+        "peak_z": round(float(max_val * 5.2), 2),
+        "score": round(float(max_val), 3),
+    }]
 
 
 def generate_heatmap_overlay(
@@ -1197,7 +1274,8 @@ def generate_heatmap_overlay(
 ) -> Any:
     """
     Extracts a Grad-CAM heatmap array from Model 1 (or generates a Gaussian defect hotspot array),
-    applies JET colormap (using OpenCV or vectorized numpy), and encodes to a JPEG Base64 data URI string.
+    applies JET colormap, and encodes to a transparent PNG Base64 data URI string.
+    Low-activation regions are fully transparent so the metal part remains visible underneath.
     """
     w, h = image.size
     heatmap_2d = None
@@ -1235,21 +1313,29 @@ def generate_heatmap_overlay(
             heatmap_2d += 0.5 * np.exp(-dist_sq2 / (2 * (sigma * 0.7) ** 2))
             heatmap_2d = np.clip(heatmap_2d, 0.0, 1.0)
 
-    # Colorize using OpenCV COLORMAP_JET or pure NumPy vectorization
+    # Colorize using JET colormap
     uint8_map = (np.clip(heatmap_2d, 0.0, 1.0) * 255.0).astype(np.uint8)
     if HAS_CV2 and cv2 is not None:
         color_bgr = cv2.applyColorMap(uint8_map, cv2.COLORMAP_JET)
         color_rgb = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
-        color_img = Image.fromarray(color_rgb)
     else:
         h_norm = np.clip(heatmap_2d, 0.0, 1.0)
         r = np.clip(1.5 - np.abs(4.0 * h_norm - 3.0), 0.0, 1.0)
         g = np.clip(1.5 - np.abs(4.0 * h_norm - 2.0), 0.0, 1.0)
         b = np.clip(1.5 - np.abs(4.0 * h_norm - 1.0), 0.0, 1.0)
-        rgb = (np.stack([r, g, b], axis=-1) * 255.0).astype(np.uint8)
-        color_img = Image.fromarray(rgb)
+        color_rgb = (np.stack([r, g, b], axis=-1) * 255.0).astype(np.uint8)
 
-    b64_str = encode_pil_to_base64_data_uri(color_img, format="JPEG", quality=85)
+    # Compute transparency alpha channel (transparent PNG overlay):
+    # Regions below 0.15 activation are 100% transparent. Defect hotspot ramps smoothly to opaque.
+    if is_normal:
+        alpha = (np.clip((heatmap_2d - 0.04) * 280, 0, 80)).astype(np.uint8)
+    else:
+        alpha = (np.clip((heatmap_2d - 0.10) / 0.90 * 255 * 1.5, 0, 240)).astype(np.uint8)
+
+    rgba = np.dstack([color_rgb, alpha])
+    color_img = Image.fromarray(rgba, mode="RGBA")
+    b64_str = encode_pil_to_base64_data_uri(color_img, format="PNG")
+
     if return_array:
         return b64_str, heatmap_2d
     return b64_str
@@ -1564,7 +1650,10 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
                 "has_defect": False,
                 "defect_type": "Nominal Baseline",
                 "original_image_base64": orig_b64,
+                "original_url": orig_b64,
                 "heatmap_image_base64": heatmap_b64,
+                "heatmap_png_url": heatmap_b64,
+                "hotspots": [],
                 "segmentation_instances": generate_segmentation_instances(
                     is_defective=False,
                     heatmap_2d=heatmap_2d,
@@ -1612,6 +1701,7 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
     )
 
     defect_conf = float(highest_score * 100) if is_forced else round(float(p_defect * 100), 1)
+    spots = extract_hotspots_from_heatmap(heatmap_2d, is_defect=True)
 
     return {
         "status": "Defective",
@@ -1623,7 +1713,10 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
             "has_defect": True,
             "defect_type": predicted_defects[0] if predicted_defects else "Defect",
             "original_image_base64": orig_b64,
+            "original_url": orig_b64,
             "heatmap_image_base64": heatmap_b64,
+            "heatmap_png_url": heatmap_b64,
+            "hotspots": spots,
             "segmentation_instances": generate_segmentation_instances(
                 defect_type=predicted_defects[0] if predicted_defects else "Defect",
                 is_defective=True,
