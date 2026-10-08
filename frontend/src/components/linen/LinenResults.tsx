@@ -27,6 +27,7 @@ import { InspectionError } from "@/lib/api";
 import { LinenJsonViewer } from "./LinenJsonViewer";
 import { DefectSegmenter } from "@/components/inspection/DefectSegmenter";
 import { ProcessTelemetryDossier } from "@/components/inspection/ProcessTelemetryDossier";
+import { DotsLoader } from "@/components/common/DotsLoader";
 
 interface LinenResultsProps {
   activeItem: InspectionItem | null;
@@ -75,12 +76,12 @@ export function LinenResults({
     setActiveTabOverride(null);
   }
 
-  // Loading State
+  // Loading State with Particle Swarm
   if (isLoading && !activeItem) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] text-center space-y-4">
-        <div className="w-12 h-12 rounded-full border-2 border-[#E5DFD3] border-t-[#1C1917] animate-spin flex items-center justify-center">
-          <Scan aria-hidden="true" className="w-5 h-5 text-[#1C1917]" />
+        <div className="p-3 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] shadow-xs flex items-center justify-center">
+          <DotsLoader size="md" shape="loader" />
         </div>
         <div className="space-y-1">
           <h2 className="text-sm font-semibold text-[#1C1917]">
@@ -315,8 +316,8 @@ export function LinenResults({
               })}
 
               {isBatchProcessing && batchTotalCount > allItems.length && (
-                <div className="px-2 py-0.5 text-[11px] font-medium text-[#92400E] flex items-center gap-1">
-                  <RefreshCw className="w-3 h-3 animate-spin" />
+                <div className="px-2 py-0.5 text-[11px] font-medium text-[#92400E] flex items-center gap-1.5">
+                  <DotsLoader size="sm" shape="loader" className="w-3.5 h-3.5" />
                   <span>Part {batchProcessingIndex + 1} Analyzing…</span>
                 </div>
               )}
