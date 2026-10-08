@@ -23,6 +23,7 @@ jobs:
             # Ensure repository is clean and reset any stray server edits
             cd ~/noneya
             git reset --hard HEAD
+            git clean -fd
             git pull origin main
             cd ~/noneya/backend
             
