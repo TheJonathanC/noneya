@@ -1,5 +1,6 @@
 export type DefectClassification =
   | "Nominal"
+  | "Defective Part"
   | "Porosity"
   | "Crack"
   | "Dent"
@@ -518,7 +519,7 @@ export function normalizeInspectionResponse(
   else if (rawDefectType.includes("scratch")) defectType = "Scratch";
   else if (rawDefectType.includes("corrosion")) defectType = "Corrosion";
   else if (rawDefectType.includes("deformation") || rawDefectType.includes("warp")) defectType = "Deformation";
-  else if (isDefectiveByPrediction) defectType = "Porosity";
+  else if (isDefectiveByPrediction) defectType = "Defective Part";
 
   const isDefective = isDefectiveByPrediction || defectType !== "Nominal";
   const status: InspectionStatus = isDefective ? "DEFECTIVE" : "PASSED";

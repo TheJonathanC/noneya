@@ -12,6 +12,7 @@ import {
   calculateStationStats,
 } from "@/lib/inspection-adapter";
 import { runBatchInspection } from "@/lib/api";
+import { RotateCcw, Scan } from "lucide-react";
 
 export default function QualityInspectionDashboard() {
   const [items, setItems] = useState<InspectionItem[]>(() => MOCK_INSPECTION_ITEMS.slice(0, 5));
@@ -58,6 +59,27 @@ export default function QualityInspectionDashboard() {
     [sampleSize, useMockFallback]
   );
 
+  // Remove individual item from the inspection queue
+  const handleRemoveItem = useCallback((id: string) => {
+    setItems((prev) => {
+      const nextItems = prev.filter((item) => item.id !== id);
+      return nextItems;
+    });
+    setSelectedIndex((prev) => Math.max(0, prev > 0 ? prev - 1 : 0));
+  }, []);
+
+  // Clear all items from queue
+  const handleClearQueue = useCallback(() => {
+    setItems([]);
+    setSelectedIndex(0);
+  }, []);
+
+  // Restore default sample lot
+  const handleResetQueue = useCallback(() => {
+    setItems(MOCK_INSPECTION_ITEMS.slice(0, sampleSize));
+    setSelectedIndex(0);
+  }, [sampleSize]);
+
   // Micro-interaction: Keyboard frame scrubbing
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -97,7 +119,7 @@ export default function QualityInspectionDashboard() {
 
       {/* Main Terminal Workspace Layout */}
       <main className="flex-1 max-w-[1800px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden">
-        {/* 2. Ingestion & Batch Reel Strip (~35% width) */}
+        {/* 2. Part Inspection Queue (~35% width) */}
         <section className="w-full lg:w-[35%] xl:w-[32%] min-h-[400px] lg:min-h-0 flex flex-col shrink-0">
           <BatchReel
             items={items}
@@ -107,6 +129,9 @@ export default function QualityInspectionDashboard() {
               if (idx !== -1) setSelectedIndex(idx);
             }}
             onUploadFiles={handleUploadFiles}
+            onRemoveItem={handleRemoveItem}
+            onClearQueue={handleClearQueue}
+            onResetQueue={handleResetQueue}
             isLoading={isRunning}
           />
         </section>
@@ -134,8 +159,27 @@ export default function QualityInspectionDashboard() {
               </div>
             </>
           ) : (
-            <div className="h-full flex items-center justify-center p-12 text-slate-600 font-mono text-xs">
-              No component selected for inspection. Select a component from the batch reel.
+            <div className="h-full min-h-[480px] flex flex-col items-center justify-center p-12 text-slate-500 font-mono text-xs border border-dashed border-[#1F2430] rounded-2xl bg-[#0D0F16] text-center gap-4">
+              <div className="p-4 rounded-full bg-[#141724] border border-[#23293D] text-cyan-400">
+                <Scan className="w-8 h-8" />
+              </div>
+              <div className="space-y-1">
+                <div className="text-sm font-semibold text-slate-200">
+                  No Component Active for Diagnostic Stage
+                </div>
+                <p className="text-slate-500 max-w-md text-xs">
+                  The inspection queue is currently empty. Drop component captures into the intake
+                  zone or restore the sample batch.
+                </p>
+              </div>
+              <button
+                onClick={handleResetQueue}
+                type="button"
+                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/50 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Restore Sample Lot ({sampleSize} Parts)</span>
+              </button>
             </div>
           )}
         </section>
