@@ -19,6 +19,7 @@ torch>=2.2.0
 torchvision>=0.17.0
 timm>=1.0.0
 pillow>=10.2.0
+opencv-python-headless>=4.8.0
 
 # Google Generative AI (Gemini 1.5 Flash)
 google-generativeai>=0.8.0

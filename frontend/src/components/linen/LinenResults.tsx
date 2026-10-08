@@ -21,7 +21,7 @@ import {
 import { InspectionItem } from "@/lib/inspection-adapter";
 import { InspectionError } from "@/lib/api";
 import { LinenJsonViewer } from "./LinenJsonViewer";
-import { LinenImageViewer } from "./LinenImageViewer";
+import { DefectSegmenter } from "@/components/inspection/DefectSegmenter";
 
 interface LinenResultsProps {
   activeItem: InspectionItem | null;
@@ -53,12 +53,13 @@ export function LinenResults({
   isBatchProcessing = false,
   batchProcessingIndex = 0,
   batchTotalCount = 0,
+  gateDecision = "GO",
   batchStats,
   errorState,
   onRetry,
 }: LinenResultsProps) {
-  // Optical image hidden by default
-  const [showImage, setShowImage] = useState<boolean>(false);
+  // Optical image / DefectSegmenter shown by default
+  const [showImage, setShowImage] = useState<boolean>(true);
 
   // Loading State: only show full loading overlay if we do NOT yet have an active item to display
   if (isLoading && !activeItem) {
@@ -491,11 +492,25 @@ export function LinenResults({
             <div>
               <div className="flex items-center gap-2">
                 <span className="font-semibold text-[#1C1917] tracking-tight text-xs">
-                  Optical Component Capture
+                  {isDefective ||
+                  gateDecision === "CRITICAL STOP" ||
+                  gateDecision === "ADJUST" ||
+                  Boolean(activeItem.visionResults?.heatmap_image_base64) ||
+                  Boolean(activeItem.heatmapImageUrl)
+                    ? "AI Defect Localization & Segmentation (Grad-CAM)"
+                    : "Optical Component Capture"}
                 </span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[#EAE4D7] text-[#57534E] font-medium">
                   {showImage ? "Visible" : "Hidden"}
                 </span>
+                {(isDefective ||
+                  gateDecision === "CRITICAL STOP" ||
+                  gateDecision === "ADJUST" ||
+                  Boolean(activeItem.visionResults?.heatmap_image_base64)) && (
+                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 font-semibold border border-rose-200">
+                    Grad-CAM Overlay
+                  </span>
+                )}
               </div>
               <p className="text-[11px] text-[#78716A]">
                 {activeItem.fileName || "High-resolution inspection photograph"}
@@ -523,10 +538,28 @@ export function LinenResults({
           </button>
         </div>
 
-        {/* When shown, render the image viewer with optical zoom */}
+        {/* When shown, render DefectSegmenter with live Grad-CAM heatmap and optical analysis */}
         {showImage && (
           <div className="p-4 bg-[#FCFBF8]">
-            <LinenImageViewer item={activeItem} />
+            <DefectSegmenter
+              originalImage={
+                activeItem.visionResults?.original_image_base64 ||
+                activeItem.rawImageUrl
+              }
+              heatmapImage={
+                activeItem.visionResults?.heatmap_image_base64 ||
+                activeItem.heatmapImageUrl
+              }
+              segmentationInstances={activeItem.segmentationInstances}
+              defectType={
+                activeItem.predictedDefects && activeItem.predictedDefects.length > 0
+                  ? activeItem.predictedDefects.join(", ")
+                  : activeItem.defectType || (isDefective ? "Localized Defect" : "Nominal Surface")
+              }
+              severity={activeItem.severity || (isDefective ? "Critical" : "Nominal")}
+              confidence={activeItem.confidenceScore}
+              stationName={activeItem.metadata?.stationId || "Automated Line • Station 04"}
+            />
           </div>
         )}
       </section>

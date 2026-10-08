@@ -108,6 +108,17 @@ def test_quality_inspection_pipeline():
         report = data.get("gemini_incident_report", "")
         print("Report Text:")
         print(report)
+
+        # Verify Vision Results (Grad-CAM Heatmap & Original Image Base64)
+        vis = data.get("vision_results", {})
+        print("\n--- Vision Results (Base64 Grad-CAM Heatmap) ---")
+        print("Vision Defect Found:", vis.get("has_defect"))
+        print("Defect Type:", vis.get("defect_type"))
+        print("Has Original Base64:", bool(vis.get("original_image_base64", "").startswith("data:image/jpeg;base64,")))
+        print("Has Heatmap Base64:", bool(vis.get("heatmap_image_base64", "").startswith("data:image/jpeg;base64,")))
+        assert vis.get("has_defect") is True, "Vision results must flag defect in failure flow"
+        assert vis.get("original_image_base64", "").startswith("data:image/jpeg;base64,"), "Original image must be a JPEG base64 data URI"
+        assert vis.get("heatmap_image_base64", "").startswith("data:image/jpeg;base64,"), "Heatmap must be a JPEG base64 data URI"
         # 4. Test Standalone PyTorch Classification Model (/test/classify) - No Gemini
         print("\n[4] Testing Standalone PyTorch Classification Model (/test/classify)...")
         single_file = {"file": ("test_impeller.png", create_dummy_image(), "image/png")}
@@ -173,6 +184,12 @@ def test_quality_inspection_pipeline():
             assert isinstance(defect_data.get("predicted_defects"), list)
             assert isinstance(defect_data.get("confidence_scores"), dict)
             assert isinstance(defect_data.get("requires_human_review"), bool)
+
+            vis_pipe = defect_data.get("vision_results", {})
+            print("   Vision Results Heatmap Present:", bool(vis_pipe.get("heatmap_image_base64")))
+            assert vis_pipe.get("has_defect") is True
+            assert vis_pipe.get("original_image_base64", "").startswith("data:image/jpeg;base64,")
+            assert vis_pipe.get("heatmap_image_base64", "").startswith("data:image/jpeg;base64,")
 
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED SUCCESSFULLY! BACKEND PIPELINE VERIFIED.")

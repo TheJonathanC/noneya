@@ -20,7 +20,7 @@ export default function QualityInspectionDashboard() {
   const [resultItems, setResultItems] = useState<InspectionItem[]>([]);
   const [rawJsons, setRawJsons] = useState<(Record<string, unknown> | null)[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [gateDecision] = useState<"GO" | "ADJUST" | "CRITICAL STOP">("GO");
+  const [gateDecision, setGateDecision] = useState<"GO" | "ADJUST" | "CRITICAL STOP">("GO");
   const [errorState, setErrorState] = useState<InspectionError | null>(null);
 
   const cancelProcessingRef = useRef(false);
@@ -84,6 +84,18 @@ export default function QualityInspectionDashboard() {
         setRawJsons([result.rawJson]);
         setSelectedIndex(0);
         setActiveStep(3);
+
+        const decisionFromRaw =
+          typeof result.rawJson?.gate_decision === "string"
+            ? (result.rawJson.gate_decision as "GO" | "ADJUST" | "CRITICAL STOP")
+            : typeof result.rawJson?.batch_status === "string"
+            ? (result.rawJson.batch_status as "GO" | "ADJUST" | "CRITICAL STOP")
+            : result.item.status === "DEFECTIVE"
+            ? result.item.severity === "Critical"
+              ? "CRITICAL STOP"
+              : "ADJUST"
+            : "GO";
+        setGateDecision(decisionFromRaw);
 
         setStagedItems((prev) =>
           prev.map((item, idx) =>
@@ -159,6 +171,18 @@ export default function QualityInspectionDashboard() {
           setSelectedIndex(collectedResults.length - 1);
           setActiveStep(3);
 
+          const anyDefective = collectedResults.some((it) => it.status === "DEFECTIVE");
+          const anyCritical = collectedResults.some(
+            (it) => it.status === "DEFECTIVE" && (it.severity === "Critical" || it.confidenceScore >= 90)
+          );
+          const currentDecision =
+            anyCritical || collectedResults.filter((it) => it.status === "DEFECTIVE").length > 1
+              ? "CRITICAL STOP"
+              : anyDefective
+              ? "ADJUST"
+              : "GO";
+          setGateDecision(currentDecision);
+
           setStagedItems((prev) =>
             prev.map((item, idx) =>
               idx === i
@@ -207,6 +231,7 @@ export default function QualityInspectionDashboard() {
     setResultItems([]);
     setRawJsons([]);
     setSelectedIndex(0);
+    setGateDecision("GO");
     setErrorState(null);
     setActiveStep(1);
   }, []);

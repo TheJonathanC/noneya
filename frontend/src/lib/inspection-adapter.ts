@@ -63,6 +63,95 @@ export interface InspectionItem {
   requiresHumanReview?: boolean;
   isOkAndGoodToGo?: boolean;
   fileName?: string;
+  segmentationInstances?: SegmentationInstance[];
+  visionResults?: {
+    has_defect: boolean;
+    defect_type?: string;
+    severity?: string;
+    original_image_base64?: string;
+    heatmap_image_base64?: string;
+    segmentation_instances?: SegmentationInstance[];
+  };
+}
+
+export interface SegmentationInstance {
+  id: string;
+  className: string;
+  category: "defect" | "component" | "tolerance_zone" | "feature";
+  confidence: number;
+  color: string;
+  borderColor: string;
+  badgeBg: string;
+  badgeTextColor?: string;
+  points: string;
+  center: { x: number; y: number };
+  areaMm2?: number;
+  severity?: string;
+  details?: string;
+}
+
+export function generateDefaultSegmentationInstances(
+  defectType: DefectClassification | string = "Porosity",
+  isDefect: boolean = true,
+  cxPercent: number = 52,
+  cyPercent: number = 48
+): SegmentationInstance[] {
+  const instances: SegmentationInstance[] = [];
+
+  if (isDefect) {
+    const cx = cxPercent;
+    const cy = cyPercent;
+    instances.push(
+      {
+        id: "seg-defect-01",
+        className: `defect_${String(defectType).toLowerCase().replace(/\\s+/g, "_")}`,
+        category: "defect",
+        confidence: 95.4,
+        color: "rgba(239, 68, 68, 0.52)",
+        borderColor: "#FFFFFF",
+        badgeBg: "#EF4444",
+        badgeTextColor: "#FFFFFF",
+        center: { x: cx, y: cy },
+        areaMm2: 18.6,
+        severity: "Critical",
+        details: `Localized ${defectType} anomaly core exceeding tolerance`,
+        points: `${Math.round(cx * 8 - 36)},${Math.round(cy * 6 - 28)} ${Math.round(cx * 8 + 42)},${Math.round(cy * 6 - 32)} ${Math.round(cx * 8 + 68)},${Math.round(cy * 6 + 12)} ${Math.round(cx * 8 + 48)},${Math.round(cy * 6 + 48)} ${Math.round(cx * 8 - 18)},${Math.round(cy * 6 + 54)} ${Math.round(cx * 8 - 46)},${Math.round(cy * 6 + 18)}`,
+      },
+      {
+        id: "seg-stress-01",
+        className: "heat_stress_zone",
+        category: "tolerance_zone",
+        confidence: 88.2,
+        color: "rgba(245, 158, 11, 0.38)",
+        borderColor: "#FDE68A",
+        badgeBg: "#F59E0B",
+        badgeTextColor: "#FFFFFF",
+        center: { x: Math.max(cx - 12, 12), y: Math.min(cy + 14, 88) },
+        areaMm2: 42.4,
+        severity: "Warning",
+        details: "Thermal boundary gradient surrounding defect site",
+        points: `${Math.round(cx * 8 - 72)},${Math.round(cy * 6 - 15)} ${Math.round(cx * 8 - 15)},${Math.round(cy * 6 - 8)} ${Math.round(cx * 8 + 12)},${Math.round(cy * 6 + 48)} ${Math.round(cx * 8 - 25)},${Math.round(cy * 6 + 82)} ${Math.round(cx * 8 - 85)},${Math.round(cy * 6 + 45)}`,
+      }
+    );
+  } else {
+    instances.push({
+      id: "seg-vane-01",
+      className: "vane_sector_01",
+      category: "feature",
+      confidence: 97.2,
+      color: "rgba(16, 185, 129, 0.28)",
+      borderColor: "#10B981",
+      badgeBg: "#059669",
+      badgeTextColor: "#ECFDF5",
+      center: { x: 32, y: 38 },
+      areaMm2: 3200.0,
+      severity: "Nominal",
+      details: "Nominal impeller blade vane contour",
+      points: "220,200 290,170 360,220 310,310 240,280",
+    });
+  }
+
+  return instances;
 }
 
 export interface StationStats {
@@ -626,8 +715,8 @@ export function normalizeInspectionResponse(
   } else {
     anomalyCoordinate = isDefective
       ? {
-          xPercent: 54,
-          yPercent: 46,
+          xPercent: 52,
+          yPercent: 48,
           radiusPercent: 15,
           confidence: confidenceScore,
           intensity: severity === "Critical" ? "Severe" : "High",
@@ -660,10 +749,30 @@ export function normalizeInspectionResponse(
   const timeString = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
 
   const seed = Math.floor(Math.random() * 8) + 1;
-  const rawImageUrl = customRawImageUrl || generateIndustrialSvg("raw", defectType, seed);
-  const heatmapImageUrl = typeof data.localisation_heatmap_url === "string" && data.localisation_heatmap_url.startsWith("http")
-    ? data.localisation_heatmap_url
-    : generateIndustrialSvg("gradcam", defectType, seed);
+  const visionResults = data.vision_results as {
+    has_defect: boolean;
+    defect_type?: string;
+    severity?: string;
+    original_image_base64?: string;
+    heatmap_image_base64?: string;
+    segmentation_instances?: SegmentationInstance[];
+  } | undefined;
+
+  const rawImageUrl =
+    visionResults?.original_image_base64 ||
+    customRawImageUrl ||
+    generateIndustrialSvg("raw", defectType, seed);
+
+  const heatmapImageUrl =
+    visionResults?.heatmap_image_base64 ||
+    (typeof data.localisation_heatmap_url === "string" && data.localisation_heatmap_url.startsWith("http")
+      ? data.localisation_heatmap_url
+      : generateIndustrialSvg("gradcam", defectType, seed));
+
+  const segmentationInstances: SegmentationInstance[] =
+    (Array.isArray(visionResults?.segmentation_instances) && (visionResults?.segmentation_instances as SegmentationInstance[])) ||
+    (Array.isArray(data.segmentation_instances) && (data.segmentation_instances as SegmentationInstance[])) ||
+    generateDefaultSegmentationInstances(defectType, isDefective, anomalyCoordinate.xPercent, anomalyCoordinate.yPercent);
 
   return {
     id: `QC-${now.getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -677,6 +786,7 @@ export function normalizeInspectionResponse(
     rawImageUrl,
     heatmapImageUrl,
     anomalyCoordinate,
+    segmentationInstances,
     telemetry,
     rootCauseSummary,
     recommendedAction,
@@ -693,6 +803,7 @@ export function normalizeInspectionResponse(
     requiresHumanReview,
     isOkAndGoodToGo,
     fileName: typeof data.filename === "string" ? data.filename : undefined,
+    visionResults,
   };
 }
 
