@@ -27,7 +27,7 @@ import database
 from database import InspectionTelemetry, init_db
 from telemetry_bridge import generate_batch_telemetry, diagnose_telemetry
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, status
+from fastapi import FastAPI, File, UploadFile, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -586,8 +586,9 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
 
 @app.post("/api/inspect")
 async def inspect_batch(
-    files: List[UploadFile] = File(...),
-    batch_id: str = "BATCH-2026-X89"
+    request: Request,
+    files: Optional[List[UploadFile]] = File(None),
+    batch_id: Optional[str] = None
 ):
     """
     Main integrated inspection pipeline connecting:
@@ -598,12 +599,38 @@ async def inspect_batch(
       - STAGE 4: Gemini Incident Report Structuring
     """
     try:
+        effective_batch_id = batch_id or "BATCH-2026-X89"
+        file_items: List[Any] = []
+        if files:
+            file_items.extend([f for f in files if f is not None])
+
+        if not file_items:
+            try:
+                form = await request.form()
+                form_batch = form.get("batch_id")
+                if form_batch:
+                    effective_batch_id = str(form_batch)
+                for key in ["files", "file"]:
+                    if hasattr(form, "getlist"):
+                        items = form.getlist(key)
+                    else:
+                        val = form.get(key)
+                        items = [val] if val else []
+                    for item in items:
+                        if item and hasattr(item, "read"):
+                            file_items.append(item)
+            except Exception as form_err:
+                logger.warning(f"Could not parse form in inspect_batch: {form_err}")
+
+        if not file_items:
+            raise HTTPException(status_code=400, detail="No files provided in inspection request.")
+
         batch_results = []
         m1 = model1 or init_model1() or load_classifier()
         m2 = model2 or init_model2()
 
-        for file_item in files:
-            fname = file_item.filename or "component.jpg"
+        for file_item in file_items:
+            fname = getattr(file_item, "filename", "component.jpg") or "component.jpg"
             try:
                 content = await file_item.read()
                 image = Image.open(io.BytesIO(content)).convert("RGB")
@@ -716,7 +743,7 @@ async def inspect_batch(
             })
 
         return {
-            "batch_id": batch_id,
+            "batch_id": effective_batch_id,
             "processed_parts": len(batch_results),
             "results": batch_results,
         }
@@ -726,7 +753,7 @@ async def inspect_batch(
             "status": "ERROR",
             "error": str(err),
             "traceback": traceback.format_exc(),
-            "batch_id": batch_id,
+            "batch_id": effective_batch_id,
             "results": [],
         }
 
