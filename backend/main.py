@@ -815,7 +815,7 @@ async def inspect_batch(
             if database.is_db_connected:
                 try:
                     db_doc = InspectionTelemetry(
-                        batch_id=batch_id,
+                        batch_id=effective_batch_id,
                         machine_id="CAST-CELL-04",
                         timestamp=datetime.now(timezone.utc),
                         classified_defect=defect_type,
