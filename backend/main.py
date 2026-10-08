@@ -1626,12 +1626,32 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
 
     defect_conf = float(highest_score * 100) if is_forced else round(float(p_defect * 100), 1)
 
+    defect_type = predicted_defects[0] if predicted_defects else "porosity"
+    simulated_sensors = generate_batch_telemetry(defect_type)
+    diagnostic = diagnose_telemetry(simulated_sensors)
+
+    if database.is_db_connected:
+        try:
+            db_doc = InspectionTelemetry(
+                batch_id="TEST-INTEGRATED",
+                machine_id="CAST-CELL-04",
+                timestamp=datetime.now(timezone.utc),
+                classified_defect=defect_type,
+                sensor_readings=simulated_sensors,
+                root_cause=diagnostic,
+            )
+            await db_doc.insert()
+        except Exception as exc:
+            logger.warning(f"Failed to persist inspection telemetry to MongoDB: {exc}")
+
     return {
         "status": "Defective",
         "defect_type": defect_type,
         "predicted_defects": predicted_defects,
         "confidence_scores": confidence_scores,
         "requires_human_review": requires_human_review,
+        "telemetry": simulated_sensors,
+        "root_cause_analysis": diagnostic,
         "vision_results": {
             "has_defect": True,
             "defect_type": predicted_defects[0] if predicted_defects else "Defect",
