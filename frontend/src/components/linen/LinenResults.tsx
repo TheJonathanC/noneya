@@ -214,303 +214,156 @@ export function LinenResults({
     };
   }
 
-  // Define Primary Top-Level Tabs
+  // Primary Top-Level Tabs (Operator friendly, non-technical)
   const primaryTabs = isDefective
     ? [
         {
           id: "visual",
-          label: "Visual Diagnostics",
-          sublabel: "Image Forward",
-          icon: Crosshair,
-          badge: activeItem.severity || "Critical",
-          badgeColor: "bg-[#FEF2F2] text-[#991B1B] border-[#FCA5A5]",
+          label: "Image",
+          icon: ImageIcon,
         },
         {
-          id: "audit",
-          label: "Audit Dossier",
-          sublabel: "Root Cause & Gate",
-          icon: ShieldAlert,
-          badge: gateDecision || "CRITICAL STOP",
-          badgeColor: "bg-[#FFF5F5] text-[#991B1B] border-[#FCA5A5]",
+          id: "report",
+          label: "Report",
+          icon: FileText,
         },
         {
           id: "telemetry",
-          label: "Process Telemetry",
-          sublabel: "SCADA & History",
+          label: "Sensors",
           icon: Activity,
-          badge: "6 Sensors",
-          badgeColor: "bg-[#FAF8F5] text-[#57534E] border-[#E5DFD3]",
         },
         {
           id: "json",
-          label: "Pipeline JSON",
-          sublabel: "Diagnostic Dump",
-          icon: FileText,
-          badge: null,
-          badgeColor: "",
+          label: "Details",
+          icon: Sliders,
         },
       ]
     : [
         {
           id: "report",
-          label: "Inspection Report",
-          sublabel: "All OK • Pass",
+          label: "Report",
           icon: ShieldCheck,
-          badge: "All OK",
-          badgeColor: "bg-[#DCFCE7] text-[#166534] border-[#86EFAC]",
         },
         {
           id: "visual",
-          label: "Optical Capture",
-          sublabel: "Reference Photo",
-          icon: Eye,
-          badge: "Baseline",
-          badgeColor: "bg-[#F3EFE6] text-[#57534E] border-[#DDD5C7]",
+          label: "Image",
+          icon: ImageIcon,
         },
         {
           id: "telemetry",
-          label: "Process Telemetry",
-          sublabel: "Sensor Baselines",
+          label: "Sensors",
           icon: Activity,
-          badge: "In Tolerance",
-          badgeColor: "bg-[#F0FDF4] text-[#166534] border-[#86EFAC]",
         },
         {
           id: "json",
-          label: "Pipeline JSON",
-          sublabel: "Raw Output",
-          icon: FileText,
-          badge: null,
-          badgeColor: "",
+          label: "Details",
+          icon: Sliders,
         },
       ];
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-5">
-      {/* Real-time Sequential Batch Flow Animation Banner */}
-      {isBatchProcessing && batchTotalCount > 1 && (
-        <div className="p-4 rounded-2xl border border-[#FDE68A] bg-[#FFFDF5] text-[#92400E] shadow-2xs space-y-3">
-          <div className="flex items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-2.5 font-medium">
-              <span className="relative flex h-2.5 w-2.5">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#D97706] opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#D97706]"></span>
-              </span>
-              <span className="font-semibold text-[#1C1917]">
-                Batch Pipeline: Processing Part {Math.min(batchProcessingIndex + 1, batchTotalCount)} of {batchTotalCount}
-              </span>
-            </div>
-            <span className="font-mono font-semibold text-[11px] tabular-nums text-[#92400E]">
-              {Math.round((Math.min(batchProcessingIndex + 1, batchTotalCount) / batchTotalCount) * 100)}%
-            </span>
-          </div>
-
-          {/* Stepper Progress Bar */}
-          <div className="w-full bg-[#FEF3C7] h-1.5 rounded-full overflow-hidden">
-            <div
-              className="bg-[#D97706] h-full transition-all duration-300"
-              style={{
-                width: `${Math.round(
-                  (Math.min(batchProcessingIndex + 1, batchTotalCount) / batchTotalCount) * 100
-                )}%`,
-              }}
-            />
-          </div>
-
-          {/* Sequential Step Badges */}
-          <div className="flex items-center gap-2 overflow-x-auto pt-1">
-            {Array.from({ length: batchTotalCount }).map((_, idx) => {
-              const isPast = idx < batchProcessingIndex;
-              const isCurrent = idx === batchProcessingIndex;
-              const pastItem = allItems[idx];
-              const pastDefective = pastItem?.status === "DEFECTIVE";
-
-              return (
-                <div
-                  key={`step-${idx}`}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all shrink-0 flex items-center gap-1.5 ${
-                    isPast
-                      ? pastDefective
-                        ? "bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5]"
-                        : "bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0]"
-                      : isCurrent
-                      ? "bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] ring-1 ring-[#F59E0B]/50 font-bold animate-pulse"
-                      : "bg-[#FFFFFF]/70 text-[#A8A29E] border border-[#E5E7EB]"
-                  }`}
-                >
-                  <span>Part {idx + 1}</span>
-                  {isPast && <span>{pastDefective ? "✕" : "✓"}</span>}
-                  {isCurrent && <RefreshCw aria-hidden="true" className="w-2.5 h-2.5 animate-spin" />}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Batch Navigation (when inspecting multiple parts or while batch is active) */}
-      {isBatch && (allItems.length > 1 || isBatchProcessing) && (
-        <div className="p-3 bg-[#FFFFFF] rounded-2xl border border-[#E5DFD3] flex items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-2 overflow-x-auto">
-            {allItems.map((item, idx) => {
-              const isItemDefective = item.status === "DEFECTIVE";
-              const isSelected = selectedIndex === idx;
-
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onSelectIndex(idx)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-all flex items-center gap-2 shrink-0 cursor-pointer ${
-                    isSelected
-                      ? "bg-[#1C1917] border-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
-                      : "bg-[#FAF8F5] border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6]"
-                  }`}
-                >
-                  <span
-                    className={`w-2 h-2 rounded-full ${
-                      isItemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
-                    }`}
-                  />
-                  <span>{item.fileName || `Part ${idx + 1}`}</span>
-                </button>
-              );
-            })}
-
-            {isBatchProcessing && batchTotalCount > allItems.length && (
-              <div className="px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] animate-pulse shrink-0">
-                <RefreshCw aria-hidden="true" className="w-3 h-3 animate-spin" />
-                <span>Part {batchProcessingIndex + 1} Analyzing…</span>
-              </div>
-            )}
-          </div>
-
-          {batchStats && (
-            <span className="text-xs text-[#78716A] shrink-0 font-mono">
-              {batchStats.passed}/{batchStats.total} OK
-            </span>
-          )}
-        </div>
-      )}
-
+    <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-4">
       {/* =========================================================================
-          TOP-LEVEL HEADER & VERDICT SUMMARY BAR
+          UNIFIED OPERATOR STATUS & NAVIGATION BAR
+          Clean, simple, non-technical, and keeps the image front and center.
       ========================================================================= */}
-      <div
-        className={`p-4 sm:p-5 rounded-2xl border flex flex-wrap items-center justify-between gap-4 shadow-xs ${
-          isDefective
-            ? "bg-[#FEF2F2] border-[#FCA5A5]/70 text-[#991B1B]"
-            : "bg-[#F0FDF4] border-[#86EFAC]/70 text-[#166534]"
-        }`}
-      >
-        <div className="flex items-center gap-3.5">
+      <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        {/* Left: Clean Verdict Pill + Optional Batch Part Selector */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Status Pill */}
           <div
-            className={`p-3 rounded-2xl border shadow-2xs ${
+            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-colors ${
               isDefective
-                ? "bg-[#FFFFFF] border-[#FCA5A5] text-[#991B1B]"
-                : "bg-[#DCFCE7] border-[#86EFAC] text-[#166534]"
+                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
             }`}
           >
-            {isDefective ? (
-              <ShieldAlert aria-hidden="true" className="w-6 h-6" />
-            ) : (
-              <ShieldCheck aria-hidden="true" className="w-6 h-6" />
-            )}
-          </div>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h2 className="text-base font-bold text-[#1C1917]">
-                {isDefective
-                  ? "Defect Detected • Integrated Pipeline Active"
-                  : "All OK • Nominal Component Pass"}
-              </h2>
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold border ${
-                  isDefective
-                    ? "bg-[#FFFFFF] text-[#991B1B] border-[#FCA5A5]"
-                    : "bg-[#DCFCE7] text-[#166534] border-[#86EFAC]"
-                }`}
-              >
-                {isDefective ? activeItem.severity || "Critical Defect" : "Pass • Good to Go"}
-              </span>
-            </div>
-            <p className="text-xs text-[#78716A] mt-0.5">
-              {activeItem.fileName || "Component Analysis"} • Scanned at{" "}
-              <span className="font-mono tabular-nums">{activeItem.timestamp}</span> • Station 04
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => window.print()}
-            aria-label="Print audit report"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] text-xs font-medium transition-colors cursor-pointer"
-          >
-            <Printer aria-hidden="true" className="w-3.5 h-3.5" />
-            <span>Print Report</span>
-          </button>
-        </div>
-      </div>
-
-      {/* =========================================================================
-          IMAGE-FORWARD PRIMARY NAVIGATION TABS
-          Defect default: Visual Diagnostics (Image Forward)
-          OK default:     Inspection Report (All OK data card)
-      ========================================================================= */}
-      <div className="p-1.5 bg-[#FFFFFF] rounded-2xl border border-[#E5DFD3] flex items-center gap-2 overflow-x-auto shadow-2xs">
-        {primaryTabs.map((tab) => {
-          const Icon = tab.icon;
-          const isActive = currentTab === tab.id;
-
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTabOverride(tab.id)}
-              className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl text-xs transition-all shrink-0 cursor-pointer ${
-                isActive
-                  ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
-                  : "bg-[#FAF8F5] border border-transparent text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+            <span
+              className={`w-2 h-2 rounded-full ${
+                isDefective ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E]"
               }`}
-            >
-              <Icon
-                className={`w-4 h-4 ${
-                  isActive ? "text-[#FAF8F5]" : "text-[#78716A]"
-                }`}
-              />
-              <div className="text-left leading-tight">
-                <span className="block font-semibold">{tab.label}</span>
-                <span
-                  className={`text-[10px] block ${
-                    isActive ? "text-[#D6D3D1]" : "text-[#A8A29E]"
-                  }`}
-                >
-                  {tab.sublabel}
-                </span>
-              </div>
-              {tab.badge && (
-                <span
-                  className={`ml-1 text-[10px] px-2 py-0.5 rounded-full border font-mono font-medium ${
-                    isActive
-                      ? "bg-[#2C2724] text-[#FAF8F5] border-[#44403C]"
-                      : tab.badgeColor
-                  }`}
-                >
-                  {tab.badge}
+            />
+            <span>{isDefective ? "Defect Detected" : "All Good • Part OK"}</span>
+          </div>
+
+          {/* Batch Selector (Simple Part 1, Part 2 pills - NO raw filenames!) */}
+          {isBatch && (allItems.length > 1 || isBatchProcessing) && (
+            <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-xl border border-[#E5DFD3]">
+              {allItems.map((item, idx) => {
+                const itemDefective = item.status === "DEFECTIVE";
+                const isSelected = selectedIndex === idx;
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onSelectIndex(idx)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
+                      isSelected
+                        ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
+                        : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                      }`}
+                    />
+                    <span>Part {idx + 1}</span>
+                  </button>
+                );
+              })}
+
+              {isBatchProcessing && batchTotalCount > allItems.length && (
+                <div className="px-2 py-0.5 text-[11px] font-medium text-[#92400E] flex items-center gap-1">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  <span>Part {batchProcessingIndex + 1} Analyzing…</span>
+                </div>
+              )}
+
+              {batchStats && (
+                <span className="text-[11px] text-[#78716A] px-2 font-mono border-l border-[#E5DFD3] ml-0.5">
+                  {batchStats.passed}/{batchStats.total} OK
                 </span>
               )}
-            </button>
-          );
-        })}
+            </div>
+          )}
+        </div>
+
+        {/* Right: Primary Tabs (Image | Report | Sensors | Details) */}
+        <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-xl border border-[#E5DFD3]">
+          {primaryTabs.map((tab) => {
+            const Icon = tab.icon;
+            const isActive = currentTab === tab.id;
+
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTabOverride(tab.id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  isActive
+                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
+                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                }`}
+              >
+                <Icon
+                  className={`w-3.5 h-3.5 ${
+                    isActive ? "text-[#FAF8F5]" : "text-[#78716A]"
+                  }`}
+                />
+                <span>{tab.label}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* =========================================================================
           TAB 1: VISUAL DIAGNOSTICS (IMAGE FORWARD)
       ========================================================================= */}
       {currentTab === "visual" && (
-        <div className="space-y-4">
+        <div className="space-y-3">
           <DefectSegmenter
             originalImage={originalImg}
             heatmapImage={heatmapImg}
@@ -527,33 +380,53 @@ export function LinenResults({
           />
 
           {/* Quick Context Strip beneath the Image */}
-          <div className="p-4 rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="flex items-center gap-3">
-              <span className="font-semibold text-[#1C1917]">Visual Verdict:</span>
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full font-semibold border ${
-                  isDefective
-                    ? "bg-[#FEF2F2] text-[#991B1B] border-[#FCA5A5]"
-                    : "bg-[#F0FDF4] text-[#166534] border-[#86EFAC]"
-                }`}
-              >
-                {isDefective ? "Surface Defect Confirmed" : "Optical Baseline Nominal"}
-              </span>
-              <span className="text-[#78716A]">
-                Confidence:{" "}
-                <span className="font-mono font-semibold text-[#1C1917]">
-                  {confidenceVal.toFixed(1)}%
+          <div className="p-3.5 rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-[#1C1917]">
+                  {isDefective ? "Defect:" : "Status:"}
                 </span>
+                <span
+                  className={`font-semibold ${
+                    isDefective ? "text-[#991B1B]" : "text-[#166534]"
+                  }`}
+                >
+                  {isDefective
+                    ? predictedDefects.length > 0
+                      ? predictedDefects.join(", ")
+                      : activeItem.defectType || "Surface anomaly detected"
+                    : "No defects found"}
+                </span>
+                {isDefective && (
+                  <span className="text-[#78716A] text-[11px] font-mono">
+                    ({confidenceVal.toFixed(1)}% confidence)
+                  </span>
+                )}
+              </div>
+
+              <span className="hidden sm:inline text-[#DDD5C7]">•</span>
+
+              <span className="text-[#57534E]">
+                {isDefective
+                  ? "Action: Quarantine this part — do not pass to assembly."
+                  : "Action: Ready for assembly."}
               </span>
             </div>
 
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setActiveTabOverride("telemetry")}
-                className="text-xs text-[#57534E] hover:text-[#1C1917] underline cursor-pointer"
+                onClick={() => setActiveTabOverride("report")}
+                className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
               >
-                Inspect Telemetry Parameters & History →
+                View Full Report →
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTabOverride("telemetry")}
+                className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] text-xs transition-colors cursor-pointer"
+              >
+                Check Sensors →
               </button>
             </div>
           </div>
@@ -575,7 +448,7 @@ export function LinenResults({
               {predictedDefects.length > 0 && (
                 <div className="p-4 rounded-xl border border-[#E5DFD3] bg-[#FAF8F5] space-y-2.5">
                   <div className="text-xs font-semibold text-[#1C1917]">
-                    Categorized Defects (Model 2 Multi-Label ResNet-18)
+                    Detected Defects
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     {predictedDefects.map((defect) => {
@@ -605,7 +478,7 @@ export function LinenResults({
                 <div className="p-4 sm:p-5 rounded-xl border border-[#FED7D7] bg-[#FFF5F5] space-y-2 text-xs">
                   <div className="font-semibold text-[#991B1B] flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
-                    <span>Model 3 Telemetry Diagnostic Attribution</span>
+                    <span>Probable Root Cause</span>
                   </div>
                   <p className="text-[#57534E] leading-relaxed">
                     {activeItem.rootCauseSummary}
@@ -700,6 +573,24 @@ export function LinenResults({
                     </span>
                   </span>
                 </div>
+              </div>
+
+              {/* Quick Actions for Operator */}
+              <div className="flex items-center gap-2 pt-2 border-t border-[#EAE4D7]">
+                <button
+                  type="button"
+                  onClick={() => setActiveTabOverride("visual")}
+                  className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
+                >
+                  View Defect Photo →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTabOverride("telemetry")}
+                  className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] text-xs transition-colors cursor-pointer"
+                >
+                  Check Sensors →
+                </button>
               </div>
             </section>
           ) : (
@@ -804,6 +695,24 @@ export function LinenResults({
                       </span>
                     </span>
                   </div>
+                </div>
+
+                {/* Quick Actions for Operator */}
+                <div className="flex items-center gap-2 pt-2 border-t border-[#EAE4D7]">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTabOverride("visual")}
+                    className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
+                  >
+                    View Reference Photo →
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTabOverride("telemetry")}
+                    className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] text-xs transition-colors cursor-pointer"
+                  >
+                    View Sensors →
+                  </button>
                 </div>
               </div>
             </section>
