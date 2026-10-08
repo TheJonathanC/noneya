@@ -14,6 +14,7 @@ import {
   ArrowRight,
   ShieldAlert,
   ShieldCheck,
+  AlertCircle,
 } from "lucide-react";
 
 export interface StagedItem {
@@ -49,7 +50,36 @@ export function LinenIntake({
   activeStep,
 }: LinenIntakeProps) {
   const [isDragging, setIsDragging] = useState(false);
+  const [intakeError, setIntakeError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validateAndAddFiles = (files: File[]) => {
+    if (files.length === 0) return;
+
+    const invalidFormat = files.find(
+      (f) =>
+        !f.type.startsWith("image/") &&
+        !/\.(jpe?g|png|webp|svg|bmp|tiff)$/i.test(f.name)
+    );
+    if (invalidFormat) {
+      setIntakeError(
+        `Unsupported format: "${invalidFormat.name}". Please upload JPG, PNG, or WEBP images.`
+      );
+      return;
+    }
+
+    const oversized = files.find((f) => f.size > 25 * 1024 * 1024);
+    if (oversized) {
+      const mb = (oversized.size / (1024 * 1024)).toFixed(1);
+      setIntakeError(
+        `File too large: "${oversized.name}" is ${mb} MB. Maximum upload size is 25 MB.`
+      );
+      return;
+    }
+
+    setIntakeError(null);
+    onAddFiles(mode === "single" ? [files[0]] : files);
+  };
 
   const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -65,23 +95,15 @@ export function LinenIntake({
     e.preventDefault();
     setIsDragging(false);
     if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-      const fileList = Array.from(e.dataTransfer.files).filter((f) =>
-        f.type.startsWith("image/")
-      );
-      if (fileList.length > 0) {
-        onAddFiles(mode === "single" ? [fileList[0]] : fileList);
-      }
+      const fileList = Array.from(e.dataTransfer.files);
+      validateAndAddFiles(fileList);
     }
   };
 
   const handleFileInputChange = (e: ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
-      const fileList = Array.from(e.target.files).filter((f) =>
-        f.type.startsWith("image/")
-      );
-      if (fileList.length > 0) {
-        onAddFiles(mode === "single" ? [fileList[0]] : fileList);
-      }
+      const fileList = Array.from(e.target.files);
+      validateAndAddFiles(fileList);
       e.target.value = "";
     }
   };
@@ -120,7 +142,10 @@ export function LinenIntake({
             type="button"
             role="tab"
             aria-selected={mode === "single"}
-            onClick={() => onModeChange("single")}
+            onClick={() => {
+              onModeChange("single");
+              setIntakeError(null);
+            }}
             className={`py-2 px-3 rounded-lg font-medium text-xs transition-[background-color,color,box-shadow,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
               mode === "single"
                 ? "bg-[#FFFFFF] text-[#1C1917] font-bold shadow-xs"
@@ -134,7 +159,10 @@ export function LinenIntake({
             type="button"
             role="tab"
             aria-selected={mode === "batch"}
-            onClick={() => onModeChange("batch")}
+            onClick={() => {
+              onModeChange("batch");
+              setIntakeError(null);
+            }}
             className={`py-2 px-3 rounded-lg font-medium text-xs transition-[background-color,color,box-shadow,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
               mode === "batch"
                 ? "bg-[#FFFFFF] text-[#1C1917] font-bold shadow-xs"
@@ -147,7 +175,7 @@ export function LinenIntake({
       </div>
 
       {/* Intake Dropzone */}
-      <div className="p-4 sm:p-5 border-b border-[#E6E0D3] bg-[#FAF8F5] space-y-4">
+      <div className="p-4 sm:p-5 border-b border-[#E6E0D3] bg-[#FAF8F5] space-y-3.5">
         <div
           role="button"
           tabIndex={0}
@@ -193,10 +221,28 @@ export function LinenIntake({
                 : "Drop batch images (1 to 10 parts) or browse"}
             </div>
             <p className="text-[11px] text-[#78716A]">
-              Accepts high-resolution captures (PNG, JPG, WEBP)
+              Accepts high-resolution captures (PNG, JPG, WEBP • Max 25 MB)
             </p>
           </div>
         </div>
+
+        {/* Client-side Intake Validation Alert Banner */}
+        {intakeError && (
+          <div className="p-3 rounded-xl bg-[#FEF6F3] border border-[#FCD6C2] text-[#9A3412] font-mono text-xs flex items-center justify-between gap-2 shadow-xs animate-in fade-in duration-150">
+            <div className="flex items-center gap-2 min-w-0">
+              <AlertCircle aria-hidden="true" className="w-4 h-4 text-[#EA580C] shrink-0" />
+              <span className="truncate">{intakeError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIntakeError(null)}
+              aria-label="Dismiss error notice"
+              className="p-1 rounded text-[#9A3412] hover:bg-[#FDF2E9] transition-colors cursor-pointer shrink-0"
+            >
+              <X aria-hidden="true" className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* 1-Click Test Presets */}
         <div className="space-y-1.5">
@@ -210,7 +256,10 @@ export function LinenIntake({
               <>
                 <button
                   type="button"
-                  onClick={() => onLoadPreset("nominal")}
+                  onClick={() => {
+                    setIntakeError(null);
+                    onLoadPreset("nominal");
+                  }}
                   className="flex-1 py-1.5 px-2.5 rounded-lg border border-[#C6E6C8] bg-[#EDF7EE] hover:bg-[#E3F2E4] text-[#166534] font-mono text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#166534] shadow-xs"
                 >
                   <ShieldCheck aria-hidden="true" className="w-3.5 h-3.5 text-[#16A34A]" />
@@ -219,7 +268,10 @@ export function LinenIntake({
 
                 <button
                   type="button"
-                  onClick={() => onLoadPreset("defective")}
+                  onClick={() => {
+                    setIntakeError(null);
+                    onLoadPreset("defective");
+                  }}
                   className="flex-1 py-1.5 px-2.5 rounded-lg border border-[#FCD6C2] bg-[#FDF2E9] hover:bg-[#FCE6D7] text-[#9A3412] font-mono text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
                 >
                   <ShieldAlert aria-hidden="true" className="w-3.5 h-3.5 text-[#EA580C]" />
@@ -229,7 +281,10 @@ export function LinenIntake({
             ) : (
               <button
                 type="button"
-                onClick={() => onLoadPreset("pilot_5")}
+                onClick={() => {
+                  setIntakeError(null);
+                  onLoadPreset("pilot_5");
+                }}
                 className="w-full py-2 px-3 rounded-lg border border-[#E2DBD0] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#78350F] font-mono text-xs font-semibold flex items-center justify-center gap-2 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
               >
                 <Layers aria-hidden="true" className="w-3.5 h-3.5 text-[#9A3412]" />

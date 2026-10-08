@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
+  AlertCircle,
   Scan,
   FileCode2,
   Activity,
@@ -16,11 +17,14 @@ import {
   Gauge,
   Waves,
   Zap,
+  RotateCcw,
+  X,
 } from "lucide-react";
 import { InspectionItem, SensorTelemetry } from "@/lib/inspection-adapter";
+import { InspectionError } from "@/lib/api";
 import { Badge } from "@/components/ui/badge";
 import { LinenJsonViewer } from "./LinenJsonViewer";
-import { LinenSlider } from "./LinenSlider";
+import { LinenImageViewer } from "./LinenImageViewer";
 
 interface LinenResultsProps {
   activeItem: InspectionItem | null;
@@ -33,6 +37,10 @@ interface LinenResultsProps {
   gateDecision?: "GO" | "ADJUST" | "CRITICAL STOP";
   batchStats?: { total: number; passed: number; defective: number };
   onLoadQuickSample: () => void;
+  errorState?: InspectionError | null;
+  onRetry?: () => void;
+  onDismissError?: () => void;
+  onEnableMockFallback?: () => void;
 }
 
 export function LinenResults({
@@ -46,6 +54,10 @@ export function LinenResults({
   gateDecision,
   batchStats,
   onLoadQuickSample,
+  errorState,
+  onRetry,
+  onDismissError,
+  onEnableMockFallback,
 }: LinenResultsProps) {
   const [activeTab, setActiveTab] = useState<"visual" | "json" | "telemetry">("visual");
   const [acknowledged, setAcknowledged] = useState(false);
@@ -66,7 +78,7 @@ export function LinenResults({
             Handing Off Payload to Backend Models…
           </h2>
           <p className="text-xs text-[#78716A] leading-relaxed text-balance">
-            Dispatching component capture to Vision Model A (EfficientNet-B0) and PatchCore-lite on
+            Dispatching component capture to Vision Model A (EfficientNet-B0) and inspection pipeline on
             82.112.231.102. Awaiting raw classification JSON…
           </p>
         </div>
@@ -77,8 +89,87 @@ export function LinenResults({
             <span>ACTIVE BACKEND PIPELINE</span>
           </div>
           <div className="text-[#A8A29E] text-[10px]">
-            Target: http://82.112.231.102/test/classify
+            Target: http://82.112.231.102/api/inspect
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // If an error occurred and no results are loaded yet
+  if (errorState && !activeItem) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 bg-[#FAF8F5] font-mono text-center space-y-6">
+        <div className="p-4 sm:p-5 rounded-2xl bg-[#FEF6F3] border border-[#FCD6C2] text-[#9A3412] shadow-xs">
+          <AlertCircle aria-hidden="true" className="w-10 h-10 text-[#EA580C]" />
+        </div>
+
+        <div className="space-y-2 max-w-lg">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#FDF2E9] border border-[#FCD6C2] text-[11px] text-[#9A3412] font-bold">
+            <span>{errorState.code || "DISPATCH_FAILED"}</span>
+            {errorState.statusCode && <span>• HTTP {errorState.statusCode}</span>}
+          </div>
+          <h2 className="text-base font-bold text-[#1C1917] uppercase tracking-wider text-balance">
+            {errorState.title}
+          </h2>
+          <p className="text-xs text-[#57534E] leading-relaxed text-balance">
+            {errorState.message}
+          </p>
+        </div>
+
+        {/* Technical Diagnostics Box */}
+        {(errorState.detail || errorState.backendTarget) && (
+          <div className="w-full max-w-lg p-3.5 rounded-xl border border-[#E8DFD1] bg-[#FFFFFF] text-[11px] text-left font-mono space-y-1.5 shadow-xs">
+            <div className="text-[10px] text-[#78716A] uppercase font-bold">Error Diagnostics</div>
+            {errorState.backendTarget && (
+              <div className="text-[#57534E] truncate">
+                <span className="text-[#A8A29E]">Target:</span> {errorState.backendTarget}
+              </div>
+            )}
+            {errorState.detail && (
+              <div className="text-[#9A3412] break-words">
+                <span className="text-[#A8A29E]">Detail:</span> {errorState.detail}
+              </div>
+            )}
+            <div className="text-[10px] text-[#A8A29E] pt-1 border-t border-[#F0EAE0]">
+              Timestamp: {errorState.timestamp}
+            </div>
+          </div>
+        )}
+
+        {/* Action recovery buttons */}
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {onRetry && (
+            <button
+              type="button"
+              onClick={onRetry}
+              className="py-2.5 px-4 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center gap-2 transition-[background-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
+            >
+              <RotateCcw aria-hidden="true" className="w-3.5 h-3.5" />
+              <span>Retry Inspection</span>
+            </button>
+          )}
+
+          {onEnableMockFallback && (
+            <button
+              type="button"
+              onClick={onEnableMockFallback}
+              className="py-2.5 px-4 rounded-xl border border-[#D8CFBF] bg-[#FFFFFF] hover:bg-[#F9F7F2] text-[#9A3412] text-xs font-semibold flex items-center gap-2 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
+            >
+              <Sparkles aria-hidden="true" className="w-3.5 h-3.5" />
+              <span>Switch to Offline Simulation Mode</span>
+            </button>
+          )}
+
+          {onDismissError && (
+            <button
+              type="button"
+              onClick={onDismissError}
+              className="py-2.5 px-4 rounded-xl border border-[#E5DFD3] text-[#78716A] hover:text-[#1C1917] bg-transparent text-xs font-semibold transition-[color,border-color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
+            >
+              <span>Dismiss</span>
+            </button>
+          )}
         </div>
       </div>
     );
@@ -113,7 +204,7 @@ export function LinenResults({
           <div className="space-y-1">
             <div className="text-[10px] text-[#9A3412] uppercase font-semibold">2. Hand-off</div>
             <div className="text-[#1C1917] font-bold">EfficientNet-B0</div>
-            <p className="text-[10px] text-[#78716A]">Supervised vision model & Grad-CAM heatmap</p>
+            <p className="text-[10px] text-[#78716A]">Supervised vision classification model</p>
           </div>
 
           <div className="space-y-1">
@@ -139,6 +230,41 @@ export function LinenResults({
 
   return (
     <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto">
+      {/* Optional Dismissible Alert Banner if an error occurred with active results */}
+      {errorState && (
+        <div className="p-3.5 mx-4 sm:mx-6 mt-4 rounded-xl bg-[#FEF6F3] border border-[#FCD6C2] text-[#9A3412] font-mono text-xs flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AlertCircle aria-hidden="true" className="w-4 h-4 text-[#EA580C] shrink-0" />
+            <div className="truncate">
+              <span className="font-bold uppercase mr-2">[{errorState.code}]</span>
+              <span>{errorState.message}</span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="px-2.5 py-1 rounded-lg bg-[#9A3412] text-[#FAF8F5] text-[11px] font-semibold hover:bg-[#7C2D12] transition-colors cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
+            {onDismissError && (
+              <button
+                type="button"
+                onClick={onDismissError}
+                aria-label="Dismiss error notice"
+                className="p-1 rounded text-[#9A3412] hover:bg-[#FDF2E9] transition-colors cursor-pointer"
+              >
+                <X aria-hidden="true" className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 1. Executive Verdict & Model Output Header */}
       <div className="p-4 sm:p-6 border-b border-[#E6E0D3] bg-[#FAF8F5] space-y-4">
         {/* Top telemetry and model latency tag */}
@@ -149,7 +275,7 @@ export function LinenResults({
               Vision Model A: EfficientNet-B0
             </span>
             <span className="text-[#D6CEBF]">•</span>
-            <span className="text-[#9A3412] font-semibold">Grad-CAM Overlay</span>
+            <span className="text-[#9A3412] font-semibold">Optical Integrity Inspection</span>
           </div>
 
           <div className="flex items-center gap-2 text-[11px] text-[#78716A]">
@@ -299,7 +425,7 @@ export function LinenResults({
 
       {/* 2. Deep Inspector Navigation Tabs */}
       <div className="px-4 sm:px-6 border-b border-[#E6E0D3] bg-[#FAF8F5] flex items-center justify-between text-xs font-mono">
-        <div role="tablist" aria-label="Inspection inspection views" className="flex items-center gap-2">
+        <div role="tablist" aria-label="Inspection display modes" className="flex items-center gap-2">
           <button
             type="button"
             role="tab"
@@ -312,7 +438,7 @@ export function LinenResults({
             }`}
           >
             <Scan aria-hidden="true" className="w-3.5 h-3.5" />
-            <span>Visual Anomaly Reticle</span>
+            <span>Component Optical Capture</span>
           </button>
 
           <button
@@ -349,12 +475,12 @@ export function LinenResults({
 
       {/* 3. Tab Contents Stage */}
       <div className="p-4 sm:p-6 space-y-6">
-        {/* TAB 1: VISUAL RETICLE & SLIDER */}
+        {/* TAB 1: OPTICAL COMPONENT VIEWER */}
         {activeTab === "visual" && (
           <div className="space-y-6">
-            <LinenSlider item={activeItem} />
+            <LinenImageViewer item={activeItem} />
 
-            {/* Quick action card underneath visual slider */}
+            {/* Quick action card underneath optical viewer */}
             <div className="p-4 sm:p-5 rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] font-mono text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
               <div className="space-y-1">
                 <div className="text-[#78716A] font-semibold text-[11px] uppercase flex items-center gap-1.5">

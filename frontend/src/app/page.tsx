@@ -8,6 +8,7 @@ import {
   inspectSinglePhoto,
   inspectBatchPhotos,
   createSampleFile,
+  InspectionError,
 } from "@/lib/api";
 import { InspectionItem } from "@/lib/inspection-adapter";
 
@@ -25,6 +26,7 @@ export default function QualityInspectionDashboard() {
   const [useMockFallback, setUseMockFallback] = useState(false);
   const [serverOnline, setServerOnline] = useState(true);
   const [announcement, setAnnouncement] = useState("");
+  const [errorState, setErrorState] = useState<InspectionError | null>(null);
 
   const activeItem = resultItems[selectedIndex] || resultItems[0] || null;
 
@@ -53,6 +55,7 @@ export default function QualityInspectionDashboard() {
 
   // Handle adding files to staged intake queue
   const handleAddFiles = useCallback((files: File[]) => {
+    setErrorState(null);
     const newItems: StagedItem[] = files.map((file, i) => ({
       id: `staged-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
       file,
@@ -84,11 +87,13 @@ export default function QualityInspectionDashboard() {
   // Clear staged queue
   const handleClearStagedQueue = useCallback(() => {
     setStagedItems([]);
+    setErrorState(null);
     setAnnouncement("Intake staging queue cleared.");
   }, []);
 
   // Load sample presets for 1-click testing
   const handleLoadPreset = useCallback((preset: "nominal" | "defective" | "pilot_5") => {
+    setErrorState(null);
     if (preset === "nominal") {
       const file = createSampleFile("nominal", 1);
       const item: StagedItem = {
@@ -138,6 +143,7 @@ export default function QualityInspectionDashboard() {
 
     setIsDispatching(true);
     setActiveStep(2);
+    setErrorState(null);
     setAnnouncement(
       mode === "single"
         ? "Handing off component to backend model at 82.112.231.102…"
@@ -149,6 +155,7 @@ export default function QualityInspectionDashboard() {
         const singleFile = stagedItems[0].file;
         const result = await inspectSinglePhoto(singleFile, {
           mockState: useMockFallback ? "DEFECTIVE" : undefined,
+          useMockFallback,
         });
 
         setResultItems([result.item]);
@@ -162,6 +169,7 @@ export default function QualityInspectionDashboard() {
         const files = stagedItems.map((item) => item.file);
         const result = await inspectBatchPhotos(files, {
           mockState: useMockFallback ? "DEFECTIVE" : undefined,
+          useMockFallback,
         });
 
         setResultItems(result.items);
@@ -173,13 +181,87 @@ export default function QualityInspectionDashboard() {
           `Batch inspection complete. Decision: ${result.gateDecision}. ${result.defectsCount} defects found.`
         );
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error("Model dispatch failed:", err);
-      setAnnouncement("Model dispatch encountered an error. Applied resilient fallback.");
+      const inspectionErr: InspectionError =
+        err && typeof err === "object" && "title" in err
+          ? (err as InspectionError)
+          : {
+              title: "Inspection Dispatch Error",
+              message:
+                err instanceof Error
+                  ? err.message
+                  : "An unexpected error occurred communicating with backend models.",
+              code: "DISPATCH_FAILED",
+              retryable: true,
+              timestamp: new Date().toLocaleTimeString(),
+            };
+      setErrorState(inspectionErr);
+      setActiveStep(1);
+      setAnnouncement(`Inspection failed: ${inspectionErr.title}. ${inspectionErr.message}`);
     } finally {
       setIsDispatching(false);
     }
   }, [stagedItems, mode, useMockFallback]);
+
+  // Retry previous dispatch
+  const handleRetryDispatch = useCallback(() => {
+    handleDispatch();
+  }, [handleDispatch]);
+
+  // Dismiss active error notice
+  const handleDismissError = useCallback(() => {
+    setErrorState(null);
+  }, []);
+
+  // Switch to offline simulation mode when remote server is unavailable
+  const handleEnableMockFallback = useCallback(async () => {
+    setUseMockFallback(true);
+    setErrorState(null);
+    setIsDispatching(true);
+    setActiveStep(2);
+    setAnnouncement("Switched to offline simulation mode.");
+
+    try {
+      if (mode === "single") {
+        const singleFile = stagedItems[0]?.file || createSampleFile("defective", 1);
+        const result = await inspectSinglePhoto(singleFile, {
+          mockState: "DEFECTIVE",
+          useMockFallback: true,
+        });
+        setResultItems([result.item]);
+        setSelectedIndex(0);
+        setRawJson(result.rawJson);
+        setActiveStep(3);
+        setAnnouncement("Simulation returned: Nominal / Defect classification in offline mode.");
+      } else {
+        const files =
+          stagedItems.length > 0
+            ? stagedItems.map((item) => item.file)
+            : [
+                createSampleFile("defective", 1),
+                createSampleFile("defective", 2),
+                createSampleFile("nominal", 3),
+                createSampleFile("nominal", 4),
+                createSampleFile("nominal", 5),
+              ];
+        const result = await inspectBatchPhotos(files, {
+          mockState: "DEFECTIVE",
+          useMockFallback: true,
+        });
+        setResultItems(result.items);
+        setSelectedIndex(0);
+        setRawJson(result.rawJson);
+        setGateDecision(result.gateDecision);
+        setActiveStep(3);
+        setAnnouncement("Simulation returned: Batch lot inspected in offline mode.");
+      }
+    } catch (mockErr) {
+      console.error("Mock dispatch failed:", mockErr);
+    } finally {
+      setIsDispatching(false);
+    }
+  }, [mode, stagedItems]);
 
   // Reset entire flow
   const handleResetAll = useCallback(() => {
@@ -187,6 +269,7 @@ export default function QualityInspectionDashboard() {
     setResultItems([]);
     setSelectedIndex(0);
     setRawJson(null);
+    setErrorState(null);
     setActiveStep(1);
     setAnnouncement("Inspection flow reset to initial intake state.");
   }, []);
@@ -295,6 +378,10 @@ export default function QualityInspectionDashboard() {
             gateDecision={gateDecision}
             batchStats={resultItems.length > 0 ? batchStats : undefined}
             onLoadQuickSample={handleQuickStart}
+            errorState={errorState}
+            onRetry={handleRetryDispatch}
+            onDismissError={handleDismissError}
+            onEnableMockFallback={handleEnableMockFallback}
           />
         </section>
       </main>

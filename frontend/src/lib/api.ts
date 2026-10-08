@@ -22,6 +22,17 @@ export interface BatchInspectionFlowResult {
   source: "live-backend" | "resilient-engine" | "mock";
 }
 
+export interface InspectionError {
+  title: string;
+  message: string;
+  code: string;
+  statusCode?: number;
+  retryable: boolean;
+  timestamp: string;
+  detail?: string;
+  backendTarget?: string;
+}
+
 export interface InspectRequestOptions {
   useMockFallback?: boolean;
   targetUrl?: string;
@@ -30,11 +41,11 @@ export interface InspectRequestOptions {
 }
 
 /**
- * Dispatches a single photo to the backend inspection model.
+ * Dispatches a single photo to the backend inspection model with robust error handling.
  */
 export async function inspectSinglePhoto(
   file: File,
-  options: { mockState?: "DEFECTIVE" | "OK" | "RANDOM" } = {}
+  options: { mockState?: "DEFECTIVE" | "OK" | "RANDOM"; useMockFallback?: boolean } = {}
 ): Promise<SingleInspectionResult> {
   const start = performance.now();
   const formData = new FormData();
@@ -44,51 +55,120 @@ export async function inspectSinglePhoto(
   if (options.mockState) {
     endpoint += `&mock=${options.mockState}`;
   }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    body: formData,
-  });
-
-  const latencyMs = Math.round(performance.now() - start);
-
-  if (!response.ok) {
-    // Generate graceful fallback
-    const fallbackItem = generateFallbackInspection(file, "P-IMP-9801");
-    return {
-      item: fallbackItem,
-      rawJson: { error: `HTTP ${response.status}`, status: "fallback" },
-      latencyMs,
-      source: "resilient-engine",
-    };
+  if (options.useMockFallback) {
+    endpoint += "&fallback=true";
   }
 
-  const rawJson = (await response.json()) as Record<string, unknown>;
-  const objectUrl = URL.createObjectURL(file);
-  const partId = `P-IMP-${Math.floor(1000 + Math.random() * 9000)}`;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      body: formData,
+    });
 
-  const item = normalizeInspectionResponse(rawJson, partId, objectUrl);
+    const latencyMs = Math.round(performance.now() - start);
 
-  const source = rawJson.backend_target
-    ? "live-backend"
-    : rawJson.source === "resilient-engine"
-    ? "resilient-engine"
-    : "mock";
+    if (!response.ok) {
+      if (options.useMockFallback) {
+        const fallbackItem = generateFallbackInspection(file, "P-IMP-9801");
+        return {
+          item: fallbackItem,
+          rawJson: { error: `HTTP ${response.status}`, status: "fallback" },
+          latencyMs,
+          source: "resilient-engine",
+        };
+      }
 
-  return {
-    item,
-    rawJson,
-    latencyMs: typeof rawJson.latency_ms === "number" ? rawJson.latency_ms : latencyMs,
-    source,
-  };
+      let errorPayload: Record<string, unknown> | null = null;
+      try {
+        errorPayload = await response.json();
+      } catch {
+        // Not JSON
+      }
+
+      const errorMessage =
+        (typeof errorPayload?.error === "string" && errorPayload.error) ||
+        (typeof errorPayload?.detail === "string" && errorPayload.detail) ||
+        `Backend returned HTTP ${response.status} (${response.statusText})`;
+
+      const errorCode =
+        typeof errorPayload?.code === "string"
+          ? errorPayload.code
+          : response.status >= 500
+          ? "BACKEND_ERROR"
+          : "REQUEST_ERROR";
+
+      const err: InspectionError = {
+        title: response.status >= 500 ? "Backend Model Service Error" : "Inspection Request Error",
+        message: errorMessage,
+        code: errorCode,
+        statusCode: response.status,
+        retryable: response.status >= 500 || response.status === 408,
+        timestamp: new Date().toLocaleTimeString(),
+        detail: typeof errorPayload?.detail === "string" ? errorPayload.detail : undefined,
+        backendTarget:
+          typeof errorPayload?.backend_target === "string"
+            ? errorPayload.backend_target
+            : undefined,
+      };
+
+      throw err;
+    }
+
+    const rawJson = (await response.json()) as Record<string, unknown>;
+
+    if (rawJson.status === "error") {
+      const err: InspectionError = {
+        title: "Model Inspection Failure",
+        message: typeof rawJson.error === "string" ? rawJson.error : "Unknown error",
+        code: typeof rawJson.code === "string" ? rawJson.code : "INSPECTION_FAILED",
+        statusCode: 500,
+        retryable: true,
+        timestamp: new Date().toLocaleTimeString(),
+        detail: typeof rawJson.detail === "string" ? rawJson.detail : undefined,
+      };
+      throw err;
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    const partId = `P-IMP-${Math.floor(1000 + Math.random() * 9000)}`;
+    const item = normalizeInspectionResponse(rawJson, partId, objectUrl);
+
+    const source = rawJson.backend_target
+      ? "live-backend"
+      : rawJson.source === "resilient-engine"
+      ? "resilient-engine"
+      : "mock";
+
+    return {
+      item,
+      rawJson,
+      latencyMs: typeof rawJson.latency_ms === "number" ? rawJson.latency_ms : latencyMs,
+      source,
+    };
+  } catch (error: unknown) {
+    if (error && typeof error === "object" && "title" in error) {
+      throw error as InspectionError;
+    }
+    const netErr: InspectionError = {
+      title: "Network Connection Failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach the inspection service. Please check your network connection.",
+      code: "NETWORK_ERROR",
+      retryable: true,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    throw netErr;
+  }
 }
 
 /**
- * Dispatches a batch of photos to the backend model inspection endpoint.
+ * Dispatches a batch of photos to the backend model inspection endpoint with error handling.
  */
 export async function inspectBatchPhotos(
   files: File[],
-  options: { mockState?: "DEFECTIVE" | "OK" | "RANDOM" } = {}
+  options: { mockState?: "DEFECTIVE" | "OK" | "RANDOM"; useMockFallback?: boolean } = {}
 ): Promise<BatchInspectionFlowResult> {
   const start = performance.now();
   const formData = new FormData();
@@ -101,81 +181,149 @@ export async function inspectBatchPhotos(
   if (options.mockState) {
     endpoint += `&mock=${options.mockState}`;
   }
-
-  const response = await fetch(endpoint, {
-    method: "POST",
-    body: formData,
-  });
-
-  const latencyMs = Math.round(performance.now() - start);
-
-  if (!response.ok) {
-    // Fallback batch from local curated mock
-    const items = MOCK_INSPECTION_ITEMS.slice(0, Math.min(files.length || 5, 5));
-    return {
-      items,
-      rawJson: { error: `HTTP ${response.status}`, status: "fallback" },
-      batchId: `BATCH-${Date.now()}`,
-      gateDecision: "CRITICAL STOP",
-      defectsCount: 2,
-      passedCount: items.length - 2,
-      latencyMs,
-      source: "resilient-engine",
-    };
+  if (options.useMockFallback) {
+    endpoint += "&fallback=true";
   }
 
-  const rawJson = (await response.json()) as Record<string, unknown>;
-  const payload = (rawJson.payload as Record<string, unknown>) || rawJson;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      body: formData,
+    });
 
-  const batchId =
-    typeof payload.batch_id === "string" ? payload.batch_id : `BATCH-${Date.now()}`;
+    const latencyMs = Math.round(performance.now() - start);
 
-  // Parse scanned parts from backend payload
-  const scannedParts = Array.isArray(payload.scanned_parts)
-    ? (payload.scanned_parts as Record<string, unknown>[])
-    : [];
+    if (!response.ok) {
+      if (options.useMockFallback) {
+        const items = MOCK_INSPECTION_ITEMS.slice(0, Math.min(files.length || 5, 5));
+        return {
+          items,
+          rawJson: { error: `HTTP ${response.status}`, status: "fallback" },
+          batchId: `BATCH-${Date.now()}`,
+          gateDecision: "CRITICAL STOP",
+          defectsCount: 2,
+          passedCount: items.length - 2,
+          latencyMs,
+          source: "resilient-engine",
+        };
+      }
 
-  const items: InspectionItem[] = files.map((file, idx) => {
-    const scanned = scannedParts[idx] || {};
-    const partId = `P-IMP-${9810 + idx}`;
-    const objectUrl = URL.createObjectURL(file);
+      let errorPayload: Record<string, unknown> | null = null;
+      try {
+        errorPayload = await response.json();
+      } catch {
+        // Not JSON
+      }
 
-    // Merge batch payload attributes into individual item normalizer
-    const merged = {
-      ...scanned,
-      prediction:
-        scanned.prediction ||
-        (scanned.verdict === "confirmed" ? "DEFECTIVE" : scanned.verdict === "ok" ? "OK" : undefined),
-      defect_type: scanned.defect_type,
-      confidence: scanned.clf_prob || scanned.confidence_score,
-      root_cause: payload.root_cause,
-      gemini_incident_report: payload.gemini_incident_report,
+      const errorMessage =
+        (typeof errorPayload?.error === "string" && errorPayload.error) ||
+        (typeof errorPayload?.detail === "string" && errorPayload.detail) ||
+        `Batch model service returned HTTP ${response.status}`;
+
+      const errorCode =
+        typeof errorPayload?.code === "string"
+          ? errorPayload.code
+          : response.status >= 500
+          ? "BACKEND_ERROR"
+          : "REQUEST_ERROR";
+
+      const err: InspectionError = {
+        title: "Batch Inspection Error",
+        message: errorMessage,
+        code: errorCode,
+        statusCode: response.status,
+        retryable: response.status >= 500 || response.status === 408,
+        timestamp: new Date().toLocaleTimeString(),
+        detail: typeof errorPayload?.detail === "string" ? errorPayload.detail : undefined,
+        backendTarget:
+          typeof errorPayload?.backend_target === "string"
+            ? errorPayload.backend_target
+            : undefined,
+      };
+
+      throw err;
+    }
+
+    const rawJson = (await response.json()) as Record<string, unknown>;
+
+    if (rawJson.status === "error") {
+      const err: InspectionError = {
+        title: "Batch Model Error",
+        message: typeof rawJson.error === "string" ? rawJson.error : "Unknown error",
+        code: typeof rawJson.code === "string" ? rawJson.code : "BATCH_ERROR",
+        statusCode: 500,
+        retryable: true,
+        timestamp: new Date().toLocaleTimeString(),
+        detail: typeof rawJson.detail === "string" ? rawJson.detail : undefined,
+      };
+      throw err;
+    }
+
+    const payload = (rawJson.payload as Record<string, unknown>) || rawJson;
+
+    const batchId =
+      typeof payload.batch_id === "string" ? payload.batch_id : `PILOT-${Date.now()}`;
+
+    const scannedParts = Array.isArray(payload.scanned_parts)
+      ? (payload.scanned_parts as Record<string, unknown>[])
+      : [];
+
+    const items: InspectionItem[] = files.map((file, idx) => {
+      const scanned = scannedParts[idx] || {};
+      const partId = `P-IMP-${9810 + idx}`;
+      const objectUrl = URL.createObjectURL(file);
+
+      const merged = {
+        ...scanned,
+        prediction:
+          scanned.prediction ||
+          (scanned.verdict === "confirmed" ? "DEFECTIVE" : scanned.verdict === "ok" ? "OK" : undefined),
+        defect_type: scanned.defect_type,
+        confidence: scanned.clf_prob || scanned.confidence_score,
+        root_cause: payload.root_cause,
+        gemini_incident_report: payload.gemini_incident_report,
+      };
+
+      return normalizeInspectionResponse(merged, partId, objectUrl);
+    });
+
+    const gateStatus = (payload.gate_status as Record<string, unknown>) || {};
+    const gateDecision =
+      typeof gateStatus.decision === "string"
+        ? (gateStatus.decision as "GO" | "ADJUST" | "CRITICAL STOP")
+        : items.some((i) => i.status === "DEFECTIVE")
+        ? "CRITICAL STOP"
+        : "GO";
+
+    const defectsCount = items.filter((i) => i.status === "DEFECTIVE").length;
+    const passedCount = items.length - defectsCount;
+
+    return {
+      items,
+      rawJson,
+      batchId,
+      gateDecision,
+      defectsCount,
+      passedCount,
+      latencyMs: typeof rawJson.latency_ms === "number" ? rawJson.latency_ms : latencyMs,
+      source: rawJson.backend_target ? "live-backend" : "resilient-engine",
     };
-
-    return normalizeInspectionResponse(merged, partId, objectUrl);
-  });
-
-  const gateStatus = (payload.gate_status as Record<string, unknown>) || {};
-  const gateDecision =
-    typeof gateStatus.decision === "string"
-      ? (gateStatus.decision as "GO" | "ADJUST" | "CRITICAL STOP")
-      : items.some((i) => i.status === "DEFECTIVE")
-      ? "CRITICAL STOP"
-      : "GO";
-
-  const defectsCount = items.filter((i) => i.status === "DEFECTIVE").length;
-  const passedCount = items.length - defectsCount;
-
-  return {
-    items,
-    rawJson,
-    batchId,
-    gateDecision,
-    defectsCount,
-    passedCount,
-    latencyMs: typeof rawJson.latency_ms === "number" ? rawJson.latency_ms : latencyMs,
-    source: rawJson.backend_target ? "live-backend" : "resilient-engine",
-  };
+  } catch (error: unknown) {
+    if (error && typeof error === "object" && "title" in error) {
+      throw error as InspectionError;
+    }
+    const netErr: InspectionError = {
+      title: "Network Connection Failed",
+      message:
+        error instanceof Error
+          ? error.message
+          : "Unable to reach the batch inspection service. Please check your network connection.",
+      code: "NETWORK_ERROR",
+      retryable: true,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    throw netErr;
+  }
 }
 
 /**
