@@ -99,18 +99,17 @@ export function DefectSegmenter({
 }: DefectSegmenterProps) {
   // View mode switcher:
   // 'perception' = AI instance segmentation silhouette masks + floating pill tags
-  // 'combined'   = Segmentation masks + Grad-CAM heatmap together
-  // 'overlay'    = Blended Grad-CAM heatmap overlay
-  // 'heatmap'    = Heatmap solo
+  // 'combined'   = Segmentation masks + Heatmap together
+  // 'heatmap'    = JET thermal activation heatmap (Grad-CAM)
   // 'split'      = Dual side-by-side comparison
   // 'original'   = Optical capture alone
   const [viewMode, setViewMode] = useState<
-    "perception" | "combined" | "overlay" | "heatmap" | "split" | "original"
+    "perception" | "combined" | "heatmap" | "split" | "original"
   >("perception");
 
   // In side-by-side split view: what overlay to compare against optical photo
-  // 'heatmap' = Original vs Grad-CAM Heatmap
-  // 'segmentation' = Original vs AI Defect Outlines
+  // 'heatmap' = Original vs Heatmap
+  // 'segmentation' = Original vs Defect Outlines
   // 'combined' = Original vs Combined HUD
   // 'all' = 3-way split: Original vs Heatmap vs Defect Outlines
   const [splitOverlay, setSplitOverlay] = useState<
@@ -178,22 +177,16 @@ export function DefectSegmenter({
       description: "AI instance polygon silhouettes and detection callouts",
     },
     {
+      id: "heatmap" as const,
+      label: "Heatmap",
+      icon: Flame,
+      description: "Grad-CAM thermal heatmap showing defect stress zones",
+    },
+    {
       id: "combined" as const,
       label: "Combined HUD",
       icon: Sparkles,
-      description: "Segmentation contours fused with Grad-CAM heatmap",
-    },
-    {
-      id: "overlay" as const,
-      label: "Grad-CAM Overlay",
-      icon: Layers,
-      description: "Blended thermal Grad-CAM heatmap over metal surface",
-    },
-    {
-      id: "heatmap" as const,
-      label: "Heatmap Solo",
-      icon: Flame,
-      description: "Pure JET thermal spectrum activation map",
+      description: "Segmentation contours fused with thermal heatmap",
     },
     {
       id: "split" as const,
@@ -217,39 +210,71 @@ export function DefectSegmenter({
           : "relative"
       } ${className}`}
     >
-      {/* Clean Unified Toolbar Directly Above Image Viewport */}
-      <div className="px-4 py-2 bg-[#FCFBF8] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-2.5 text-xs">
-        {/* Left: View Mode Tabs */}
-        <div className="flex items-center gap-1.5 overflow-x-auto py-0.5">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            const isActive = viewMode === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setViewMode(tab.id)}
-                title={tab.description}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
-                  isActive
-                    ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
-                    : "bg-[#FFFFFF] border border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-                }`}
-              >
-                <Icon
-                  className={`w-3.5 h-3.5 ${
-                    isActive ? "text-[#FAF8F5]" : "text-[#78716A]"
+      {/* Clean Single-Line Unified Toolbar Directly Above Image Viewport */}
+      <div className="px-3 sm:px-4 py-2 bg-[#FCFBF8] border-b border-[#EAE4D7] flex items-center justify-between gap-2 text-xs overflow-x-auto no-scrollbar">
+        {/* Left: View Mode Tabs + In-line Split Sub-options if Side-by-Side active */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          <div className="flex items-center gap-1">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = viewMode === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setViewMode(tab.id)}
+                  title={tab.description}
+                  className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                    isActive
+                      ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
+                      : "bg-[#FFFFFF] border border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
                   }`}
-                />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+                >
+                  <Icon
+                    className={`w-3.5 h-3.5 ${
+                      isActive ? "text-[#FAF8F5]" : "text-[#78716A]"
+                    }`}
+                  />
+                  <span className="whitespace-nowrap">{tab.label}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* In-line Split Comparison Selector (integrated seamlessly on same line) */}
+          {viewMode === "split" && (
+            <div className="flex items-center gap-1 pl-1.5 border-l border-[#DDD5C7] ml-1">
+              <span className="text-[#78716A] text-[11px] font-medium hidden sm:inline mr-0.5">
+                vs
+              </span>
+              {(
+                [
+                  { id: "heatmap", label: "Heatmap" },
+                  { id: "segmentation", label: "Outlines" },
+                  { id: "combined", label: "Combined" },
+                  { id: "all", label: "3-Way" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setSplitOverlay(opt.id)}
+                  className={`px-2 py-1 rounded-lg text-[11px] font-medium transition-all cursor-pointer whitespace-nowrap ${
+                    splitOverlay === opt.id
+                      ? "bg-[#1C1917] text-[#FAF8F5] font-semibold"
+                      : "bg-[#FAF8F5] border border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Right: Clean Viewport Utilities (Zoom, Fullscreen) */}
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto py-0.5">
-          {/* Toggle Mask Visibility */}
+        {/* Right: Clean Viewport Utilities (AI Layer Toggle, Zoom, Fullscreen) on the Same Line */}
+        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+          {/* Toggle AI Layer Visibility */}
           <button
             type="button"
             onClick={() => setShowMask((prev) => !prev)}
@@ -263,7 +288,7 @@ export function DefectSegmenter({
             }`}
           >
             {showMask ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{showMask ? "AI Layer" : "Hidden"}</span>
+            <span className="hidden md:inline">{showMask ? "AI Layer" : "Hidden"}</span>
           </button>
 
           {/* Zoom Group */}
@@ -278,7 +303,7 @@ export function DefectSegmenter({
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-1.5 font-mono font-medium text-[#1C1917] tabular-nums select-none min-w-[34px] text-center text-[10px]">
+            <span className="px-1 font-mono font-medium text-[#1C1917] tabular-nums select-none min-w-[32px] text-center text-[10px]">
               {Math.round(zoomLevel * 100)}%
             </span>
             <button
@@ -316,65 +341,6 @@ export function DefectSegmenter({
           </button>
         </div>
       </div>
-
-      {/* Side-by-Side Comparison Selector Sub-Bar */}
-      {viewMode === "split" && (
-        <div className="px-4 py-2 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-2.5 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-[#78716A] font-medium text-[11px]">Compare Optical Photo With:</span>
-            <div className="flex items-center gap-1 bg-[#FFFFFF] p-0.5 rounded-xl border border-[#E5DFD3] shadow-2xs">
-              <button
-                type="button"
-                onClick={() => setSplitOverlay("heatmap")}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  splitOverlay === "heatmap"
-                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
-                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-                }`}
-              >
-                Heatmap
-              </button>
-              <button
-                type="button"
-                onClick={() => setSplitOverlay("segmentation")}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  splitOverlay === "segmentation"
-                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
-                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-                }`}
-              >
-                Defect Outlines
-              </button>
-              <button
-                type="button"
-                onClick={() => setSplitOverlay("combined")}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  splitOverlay === "combined"
-                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
-                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-                }`}
-              >
-                Combined HUD
-              </button>
-              <button
-                type="button"
-                onClick={() => setSplitOverlay("all")}
-                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
-                  splitOverlay === "all"
-                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
-                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-                }`}
-              >
-                3-Way Split
-              </button>
-            </div>
-          </div>
-
-          <span className="text-[11px] text-[#78716A] hidden md:inline font-mono">
-            {splitOverlay === "all" ? "3 Panes Active" : "Dual Comparison Active"}
-          </span>
-        </div>
-      )}
 
       {/* 4. Inspection Viewport Stage */}
       <div className="relative p-3 sm:p-4 bg-[#FAF8F5] overflow-hidden flex-1 flex flex-col justify-center">
@@ -620,9 +586,7 @@ export function DefectSegmenter({
                   />
 
                   {/* Layer 2: Grad-CAM Thermal Heatmap */}
-                  {(viewMode === "overlay" ||
-                    viewMode === "combined" ||
-                    viewMode === "heatmap") &&
+                  {(viewMode === "combined" || viewMode === "heatmap") &&
                     hasHeatmap && (
                       <img
                         src={resolvedHeatmap}
@@ -633,11 +597,9 @@ export function DefectSegmenter({
                             viewMode === "heatmap"
                               ? 1
                               : showMask
-                              ? viewMode === "combined"
-                                ? 0.65
-                                : 0.75
+                              ? 0.7
                               : 0,
-                          mixBlendMode: viewMode === "heatmap" ? "normal" : "screen",
+                          mixBlendMode: viewMode === "heatmap" ? "screen" : "screen",
                         }}
                       />
                     )}
@@ -797,7 +759,7 @@ export function DefectSegmenter({
           )}
 
           {/* Thermal JET Intensity Scale / Legend Bar in Lower Right */}
-          {(viewMode === "heatmap" || viewMode === "overlay" || viewMode === "combined") && (
+          {(viewMode === "heatmap" || viewMode === "combined") && (
             <div className="absolute bottom-3 right-3 flex items-center gap-2 pointer-events-none select-none z-20">
               <div className="px-3 py-1.5 rounded-lg bg-[#1C1917]/90 border border-[#3E3834] backdrop-blur-md text-[10px] font-mono text-[#FAF8F5] flex items-center gap-2 shadow-lg">
                 <span className="text-[#A8A29E]">0.0 Nominal</span>

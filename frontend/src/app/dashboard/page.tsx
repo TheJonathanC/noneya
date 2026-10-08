@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
+import { ChevronLeft, ChevronRight, Upload, Layers } from "lucide-react";
 import { LinenHeader } from "@/components/linen/LinenHeader";
 import { LinenIntake, StagedItem } from "@/components/linen/LinenIntake";
 import { LinenResults } from "@/components/linen/LinenResults";
@@ -16,6 +17,7 @@ export default function QualityInspectionDashboard() {
   const [isDispatching, setIsDispatching] = useState(false);
   const [currentProcessingIndex, setCurrentProcessingIndex] = useState<number>(-1);
   const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const [resultItems, setResultItems] = useState<InspectionItem[]>([]);
   const [rawJsons, setRawJsons] = useState<(Record<string, unknown> | null)[]>([]);
@@ -66,6 +68,7 @@ export default function QualityInspectionDashboard() {
 
     setIsDispatching(true);
     setActiveStep(2);
+    setIsSidebarCollapsed(true); // Automatically minimize sidebar to focus on inspection viewport!
     setErrorState(null);
     cancelProcessingRef.current = false;
 
@@ -275,36 +278,93 @@ export default function QualityInspectionDashboard() {
         hasActiveInspection={resultItems.length > 0 || stagedItems.length > 0}
       />
 
-      {/* Main Clean Workspace: Locked Left Station, Independently Scrolling Right Area */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto flex flex-col lg:flex-row min-h-0 lg:overflow-hidden">
-        {/* Left Side: Intake Station (Locked layout) */}
+      {/* Main Clean Workspace: Collapsible Left Intake Station, Full-Focus Right Inspection Area */}
+      <main className="flex-1 max-w-[1700px] w-full mx-auto flex flex-col lg:flex-row min-h-0 lg:overflow-hidden relative">
+        {/* Left Side: Intake Station (Collapsible) */}
         <section
           aria-label="Component intake"
-          className="w-full lg:w-[380px] xl:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-[#EAE4D7] bg-[#FAF8F5] lg:h-full flex flex-col overflow-hidden"
+          className={`border-b lg:border-b-0 lg:border-r border-[#EAE4D7] bg-[#FAF8F5] lg:h-full flex flex-col transition-all duration-300 ease-in-out relative ${
+            isSidebarCollapsed
+              ? "w-full lg:w-14 shrink-0 overflow-visible"
+              : "w-full lg:w-[380px] xl:w-[420px] shrink-0 overflow-hidden"
+          }`}
         >
-          <LinenIntake
-            mode={mode}
-            onModeChange={(newMode) => {
-              setMode(newMode);
-              if (newMode === "single" && stagedItems.length > 1) {
-                setStagedItems([stagedItems[0]]);
-              }
-            }}
-            stagedItems={stagedItems}
-            onAddFiles={handleAddFiles}
-            onRemoveItem={handleRemoveStagedItem}
-            onClearQueue={handleClearStagedQueue}
-            isDispatching={isDispatching}
-            onDispatch={handleDispatch}
-            activeStep={activeStep}
-            currentProcessingIndex={currentProcessingIndex}
-            selectedItemIndex={selectedIndex}
-            onSelectItem={(idx) => {
-              if (resultItems[idx]) {
-                setSelectedIndex(idx);
-              }
-            }}
-          />
+          {isSidebarCollapsed ? (
+            /* Minimized Sidebar Rail */
+            <div className="h-full flex flex-col items-center py-4 px-1.5 justify-between bg-[#FAF8F5]">
+              <div className="flex flex-col items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  title="Expand intake sidebar"
+                  aria-label="Expand intake sidebar"
+                  className="w-10 h-10 rounded-xl bg-[#FFFFFF] border border-[#DDD5C7] text-[#1C1917] hover:bg-[#F3EFE6] flex items-center justify-center transition-all cursor-pointer shadow-xs group"
+                >
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
+                </button>
+
+                <div
+                  className="writing-mode-vertical text-[11px] font-semibold text-[#78716A] tracking-wider uppercase select-none pt-2 cursor-pointer flex items-center gap-1.5"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
+                >
+                  <span>Intake ({stagedItems.length})</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed(false)}
+                  title="Upload more components"
+                  aria-label="Upload more components"
+                  className="w-9 h-9 rounded-xl bg-[#1C1917] text-[#FAF8F5] flex items-center justify-center hover:bg-[#2C2724] transition-colors cursor-pointer shadow-xs"
+                >
+                  <Upload className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Expanded Intake Panel */
+            <div className="h-full flex flex-col relative overflow-hidden">
+              {/* Collapse Button Header Tab (Desktop) */}
+              <div className="hidden lg:flex absolute top-3.5 right-3.5 z-20">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarCollapsed(true)}
+                  title="Minimize sidebar to focus on inspection"
+                  aria-label="Minimize sidebar"
+                  className="p-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] transition-colors cursor-pointer shadow-2xs"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <LinenIntake
+                mode={mode}
+                onModeChange={(newMode) => {
+                  setMode(newMode);
+                  if (newMode === "single" && stagedItems.length > 1) {
+                    setStagedItems([stagedItems[0]]);
+                  }
+                }}
+                stagedItems={stagedItems}
+                onAddFiles={handleAddFiles}
+                onRemoveItem={handleRemoveStagedItem}
+                onClearQueue={handleClearStagedQueue}
+                isDispatching={isDispatching}
+                onDispatch={handleDispatch}
+                activeStep={activeStep}
+                currentProcessingIndex={currentProcessingIndex}
+                selectedItemIndex={selectedIndex}
+                onSelectItem={(idx) => {
+                  if (resultItems[idx]) {
+                    setSelectedIndex(idx);
+                  }
+                }}
+              />
+            </div>
+          )}
         </section>
 
         {/* Right Side: Inspection Report & JSON Output (Scrolls freely) */}
