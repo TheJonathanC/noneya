@@ -7,7 +7,6 @@ import { LinenResults } from "@/components/linen/LinenResults";
 import {
   inspectSinglePhoto,
   inspectBatchPhotos,
-  createSampleFile,
   InspectionError,
 } from "@/lib/api";
 import { InspectionItem } from "@/lib/inspection-adapter";
@@ -22,42 +21,15 @@ export default function QualityInspectionDashboard() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [rawJson, setRawJson] = useState<Record<string, unknown> | null>(null);
   const [gateDecision, setGateDecision] = useState<"GO" | "ADJUST" | "CRITICAL STOP">("GO");
-
-  const [useMockFallback, setUseMockFallback] = useState(false);
-  const [serverOnline, setServerOnline] = useState(true);
-  const [announcement, setAnnouncement] = useState("");
   const [errorState, setErrorState] = useState<InspectionError | null>(null);
 
   const activeItem = resultItems[selectedIndex] || resultItems[0] || null;
-
-  // Probe live backend server health on mount
-  useEffect(() => {
-    async function checkHealth() {
-      try {
-        const res = await fetch("http://82.112.231.102/health", {
-          signal: AbortSignal.timeout(3000),
-        });
-        setServerOnline(res.ok);
-      } catch {
-        try {
-          const proxyRes = await fetch("/api/classify?mock=OK", {
-            method: "POST",
-            signal: AbortSignal.timeout(3000),
-          });
-          setServerOnline(proxyRes.ok);
-        } catch {
-          setServerOnline(false);
-        }
-      }
-    }
-    checkHealth();
-  }, []);
 
   // Handle adding files to staged intake queue
   const handleAddFiles = useCallback((files: File[]) => {
     setErrorState(null);
     const newItems: StagedItem[] = files.map((file, i) => ({
-      id: `staged-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      id: `file-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
       file,
       previewUrl: URL.createObjectURL(file),
       presetType: "custom",
@@ -71,105 +43,42 @@ export default function QualityInspectionDashboard() {
     });
 
     setActiveStep(1);
-    setAnnouncement(
-      mode === "single"
-        ? `Staged component image: ${files[0].name}`
-        : `Staged ${files.length} images for batch inspection.`
-    );
   }, [mode]);
 
   // Remove individual staged file
   const handleRemoveStagedItem = useCallback((id: string) => {
     setStagedItems((prev) => prev.filter((item) => item.id !== id));
-    setAnnouncement("Removed item from intake staging queue.");
   }, []);
 
   // Clear staged queue
   const handleClearStagedQueue = useCallback(() => {
     setStagedItems([]);
     setErrorState(null);
-    setAnnouncement("Intake staging queue cleared.");
   }, []);
 
-  // Load sample presets for 1-click testing
-  const handleLoadPreset = useCallback((preset: "nominal" | "defective" | "pilot_5") => {
-    setErrorState(null);
-    if (preset === "nominal") {
-      const file = createSampleFile("nominal", 1);
-      const item: StagedItem = {
-        id: `staged-preset-${Date.now()}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        presetType: "nominal",
-      };
-      setStagedItems([item]);
-      setMode("single");
-      setAnnouncement("Loaded nominal sample part into intake.");
-    } else if (preset === "defective") {
-      const file = createSampleFile("defective", 1);
-      const item: StagedItem = {
-        id: `staged-preset-${Date.now()}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        presetType: "defective",
-      };
-      setStagedItems([item]);
-      setMode("single");
-      setAnnouncement("Loaded defective sample part into intake.");
-    } else if (preset === "pilot_5") {
-      const files = [
-        createSampleFile("defective", 1),
-        createSampleFile("defective", 2),
-        createSampleFile("nominal", 3),
-        createSampleFile("nominal", 4),
-        createSampleFile("nominal", 5),
-      ];
-      const items: StagedItem[] = files.map((file, idx) => ({
-        id: `staged-preset-batch-${Date.now()}-${idx}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        presetType: idx < 2 ? "defective" : "nominal",
-      }));
-      setStagedItems(items);
-      setMode("batch");
-      setAnnouncement("Loaded 5 calibrated sample parts for pilot batch inspection.");
-    }
-    setActiveStep(1);
-  }, []);
-
-  // Primary Dispatch Flow: Call backend models and hand off images
+  // Primary Dispatch Flow: Call backend classification and integrated pipeline if defective
   const handleDispatch = useCallback(async () => {
     if (stagedItems.length === 0) return;
 
     setIsDispatching(true);
     setActiveStep(2);
     setErrorState(null);
-    setAnnouncement(
-      mode === "single"
-        ? "Handing off component to backend model at 82.112.231.102…"
-        : `Handing off batch of ${stagedItems.length} parts to backend model…`
-    );
 
     try {
       if (mode === "single") {
         const singleFile = stagedItems[0].file;
         const result = await inspectSinglePhoto(singleFile, {
-          mockState: useMockFallback ? "DEFECTIVE" : undefined,
-          useMockFallback,
+          useMockFallback: true,
         });
 
         setResultItems([result.item]);
         setSelectedIndex(0);
         setRawJson(result.rawJson);
         setActiveStep(3);
-        setAnnouncement(
-          `Model classification returned: ${result.item.status}. Latency: ${result.latencyMs} ms.`
-        );
       } else {
         const files = stagedItems.map((item) => item.file);
         const result = await inspectBatchPhotos(files, {
-          mockState: useMockFallback ? "DEFECTIVE" : undefined,
-          useMockFallback,
+          useMockFallback: true,
         });
 
         setResultItems(result.items);
@@ -177,9 +86,6 @@ export default function QualityInspectionDashboard() {
         setRawJson(result.rawJson);
         setGateDecision(result.gateDecision);
         setActiveStep(3);
-        setAnnouncement(
-          `Batch inspection complete. Decision: ${result.gateDecision}. ${result.defectsCount} defects found.`
-        );
       }
     } catch (err: unknown) {
       console.error("Model dispatch failed:", err);
@@ -191,18 +97,17 @@ export default function QualityInspectionDashboard() {
               message:
                 err instanceof Error
                   ? err.message
-                  : "An unexpected error occurred communicating with backend models.",
+                  : "Failed to communicate with diagnostic backend service.",
               code: "DISPATCH_FAILED",
               retryable: true,
               timestamp: new Date().toLocaleTimeString(),
             };
       setErrorState(inspectionErr);
       setActiveStep(1);
-      setAnnouncement(`Inspection failed: ${inspectionErr.title}. ${inspectionErr.message}`);
     } finally {
       setIsDispatching(false);
     }
-  }, [stagedItems, mode, useMockFallback]);
+  }, [stagedItems, mode]);
 
   // Retry previous dispatch
   const handleRetryDispatch = useCallback(() => {
@@ -214,55 +119,6 @@ export default function QualityInspectionDashboard() {
     setErrorState(null);
   }, []);
 
-  // Switch to offline simulation mode when remote server is unavailable
-  const handleEnableMockFallback = useCallback(async () => {
-    setUseMockFallback(true);
-    setErrorState(null);
-    setIsDispatching(true);
-    setActiveStep(2);
-    setAnnouncement("Switched to offline simulation mode.");
-
-    try {
-      if (mode === "single") {
-        const singleFile = stagedItems[0]?.file || createSampleFile("defective", 1);
-        const result = await inspectSinglePhoto(singleFile, {
-          mockState: "DEFECTIVE",
-          useMockFallback: true,
-        });
-        setResultItems([result.item]);
-        setSelectedIndex(0);
-        setRawJson(result.rawJson);
-        setActiveStep(3);
-        setAnnouncement("Simulation returned: Nominal / Defect classification in offline mode.");
-      } else {
-        const files =
-          stagedItems.length > 0
-            ? stagedItems.map((item) => item.file)
-            : [
-                createSampleFile("defective", 1),
-                createSampleFile("defective", 2),
-                createSampleFile("nominal", 3),
-                createSampleFile("nominal", 4),
-                createSampleFile("nominal", 5),
-              ];
-        const result = await inspectBatchPhotos(files, {
-          mockState: "DEFECTIVE",
-          useMockFallback: true,
-        });
-        setResultItems(result.items);
-        setSelectedIndex(0);
-        setRawJson(result.rawJson);
-        setGateDecision(result.gateDecision);
-        setActiveStep(3);
-        setAnnouncement("Simulation returned: Batch lot inspected in offline mode.");
-      }
-    } catch (mockErr) {
-      console.error("Mock dispatch failed:", mockErr);
-    } finally {
-      setIsDispatching(false);
-    }
-  }, [mode, stagedItems]);
-
   // Reset entire flow
   const handleResetAll = useCallback(() => {
     setStagedItems([]);
@@ -271,15 +127,9 @@ export default function QualityInspectionDashboard() {
     setRawJson(null);
     setErrorState(null);
     setActiveStep(1);
-    setAnnouncement("Inspection flow reset to initial intake state.");
   }, []);
 
-  // Quick-start sample when in idle state
-  const handleQuickStart = useCallback(() => {
-    handleLoadPreset("defective");
-  }, [handleLoadPreset]);
-
-  // Arrow key scrubbing between batch parts
+  // Arrow key navigation between batch parts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (
@@ -311,37 +161,19 @@ export default function QualityInspectionDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] text-[#1C1917] flex flex-col font-sans selection:bg-[#FCE7D8] selection:text-[#7C2D12]">
-      {/* Skip Navigation Link for Keyboard Accessibility */}
-      <a
-        href="#main-linen-flow"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 z-50 px-3.5 py-2 bg-[#1C1917] text-[#FAF8F5] font-mono text-xs font-semibold rounded-lg shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
-      >
-        Skip to inspection flow
-      </a>
-
-      {/* Screen Reader Live Region for Async Batch Updates */}
-      <div className="sr-only" aria-live="polite" aria-atomic="true">
-        {announcement}
-      </div>
-
-      {/* Warm Linen Minimalist Header */}
+    <div className="min-h-screen lg:h-screen flex flex-col bg-[#FAF8F5] text-[#1C1917] font-sans selection:bg-[#F3EFE6] selection:text-[#1C1917] lg:overflow-hidden">
+      {/* Sleek Minimalist Header */}
       <LinenHeader
-        useMockFallback={useMockFallback}
-        onToggleMockFallback={() => setUseMockFallback(!useMockFallback)}
         onResetAll={handleResetAll}
-        serverOnline={serverOnline}
+        hasActiveInspection={resultItems.length > 0 || stagedItems.length > 0}
       />
 
-      {/* Main Two-Column Progressive Flow Workspace */}
-      <main
-        id="main-linen-flow"
-        className="flex-1 max-w-[1900px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden"
-      >
-        {/* Left Side (~38% width): Intake & Model Hand-Off Station */}
+      {/* Main Clean Workspace: Locked Left Station, Independently Scrolling Right Area */}
+      <main className="flex-1 max-w-[1600px] w-full mx-auto flex flex-col lg:flex-row min-h-0 lg:overflow-hidden">
+        {/* Left Side: Intake Station (Locked layout) */}
         <section
-          aria-label="Component intake station"
-          className="w-full lg:w-[40%] xl:w-[36%] min-h-[460px] lg:min-h-0 flex flex-col shrink-0"
+          aria-label="Component intake"
+          className="w-full lg:w-[380px] xl:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-[#EAE4D7] bg-[#FAF8F5] lg:h-full flex flex-col overflow-hidden"
         >
           <LinenIntake
             mode={mode}
@@ -355,17 +187,16 @@ export default function QualityInspectionDashboard() {
             onAddFiles={handleAddFiles}
             onRemoveItem={handleRemoveStagedItem}
             onClearQueue={handleClearStagedQueue}
-            onLoadPreset={handleLoadPreset}
             isDispatching={isDispatching}
             onDispatch={handleDispatch}
             activeStep={activeStep}
           />
         </section>
 
-        {/* Right Side (~62% width): Model Execution, Returned JSON & Output */}
+        {/* Right Side: Inspection Report & JSON Output (Scrolls freely) */}
         <section
-          aria-label="Model inspection results and JSON output"
-          className="flex-1 flex flex-col min-h-0 bg-[#FAF8F5]"
+          aria-label="Inspection results and report"
+          className="flex-1 min-w-0 h-full overflow-y-auto bg-[#FAF8F5]"
         >
           <LinenResults
             activeItem={activeItem}
@@ -377,11 +208,9 @@ export default function QualityInspectionDashboard() {
             isBatch={mode === "batch" || resultItems.length > 1}
             gateDecision={gateDecision}
             batchStats={resultItems.length > 0 ? batchStats : undefined}
-            onLoadQuickSample={handleQuickStart}
             errorState={errorState}
             onRetry={handleRetryDispatch}
             onDismissError={handleDismissError}
-            onEnableMockFallback={handleEnableMockFallback}
           />
         </section>
       </main>

@@ -13,8 +13,12 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Aura Quality Lab | Optical Casting Inspection & Diagnostics",
-  description: "Precision casting component quality assurance and anomaly detection studio.",
+  title: "Qastra | Quality Inspection & Diagnostics",
+  description: "Automated component quality inspection and diagnostic pipeline.",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/apple-icon.svg",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

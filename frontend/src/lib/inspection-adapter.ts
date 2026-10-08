@@ -58,6 +58,11 @@ export interface InspectionItem {
   rootCauseSummary: string;
   recommendedAction: string;
   metadata: InspectionMetadata;
+  predictedDefects?: string[];
+  confidenceScores?: Record<string, string>;
+  requiresHumanReview?: boolean;
+  isOkAndGoodToGo?: boolean;
+  fileName?: string;
 }
 
 export interface StationStats {
@@ -506,14 +511,41 @@ export function normalizeInspectionResponse(
   const data = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
 
   // Check prediction key from backend
+  const rawStatus = typeof data.status === "string" ? data.status.toLowerCase() : "";
   const rawPrediction = typeof data.prediction === "string" ? data.prediction.toUpperCase().trim() : null;
-  const isDefectiveByPrediction = rawPrediction === "DEFECTIVE";
+  const isDefectiveByPrediction = rawPrediction === "DEFECTIVE" || rawStatus === "defective" || data.is_defective === true;
+
+  // Extract predicted_defects from integrated pipeline
+  let predictedDefects: string[] = [];
+  if (Array.isArray(data.predicted_defects)) {
+    predictedDefects = data.predicted_defects.map(String);
+  }
+
+  // Extract confidence_scores from integrated pipeline
+  let confidenceScores: Record<string, string> = {};
+  if (data.confidence_scores && typeof data.confidence_scores === "object") {
+    confidenceScores = data.confidence_scores as Record<string, string>;
+  }
+
+  const requiresHumanReview =
+    typeof data.requires_human_review === "boolean"
+      ? data.requires_human_review
+      : isDefectiveByPrediction;
 
   // Check defect_type key from backend
   const rawDefectType = typeof data.defect_type === "string" ? data.defect_type.toLowerCase() : "";
   let defectType: DefectClassification = "Nominal";
 
-  if (rawDefectType.includes("porosity")) defectType = "Porosity";
+  if (predictedDefects.length > 0) {
+    const primary = predictedDefects[0].toLowerCase();
+    if (primary.includes("porosity")) defectType = "Porosity";
+    else if (primary.includes("crack")) defectType = "Crack";
+    else if (primary.includes("dent")) defectType = "Dent";
+    else if (primary.includes("scratch")) defectType = "Scratch";
+    else if (primary.includes("corrosion")) defectType = "Corrosion";
+    else if (primary.includes("deformation") || primary.includes("warp")) defectType = "Deformation";
+    else defectType = "Defective Part";
+  } else if (rawDefectType.includes("porosity")) defectType = "Porosity";
   else if (rawDefectType.includes("crack")) defectType = "Crack";
   else if (rawDefectType.includes("dent")) defectType = "Dent";
   else if (rawDefectType.includes("scratch")) defectType = "Scratch";
@@ -523,6 +555,7 @@ export function normalizeInspectionResponse(
 
   const isDefective = isDefectiveByPrediction || defectType !== "Nominal";
   const status: InspectionStatus = isDefective ? "DEFECTIVE" : "PASSED";
+  const isOkAndGoodToGo = !isDefective;
 
   // Severity rating
   let severity: SeverityRating = "Nominal";
@@ -655,6 +688,11 @@ export function normalizeInspectionResponse(
       cycleDurationMs: Math.floor(380 + Math.random() * 70),
       componentType: typeof data.component === "string" ? data.component : "Cast Alloy Impeller",
     },
+    predictedDefects: isDefective ? (predictedDefects.length > 0 ? predictedDefects : [defectType]) : [],
+    confidenceScores,
+    requiresHumanReview,
+    isOkAndGoodToGo,
+    fileName: typeof data.filename === "string" ? data.filename : undefined,
   };
 }
 

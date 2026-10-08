@@ -130,8 +130,8 @@ export async function inspectSinglePhoto(
     }
 
     const objectUrl = URL.createObjectURL(file);
-    const partId = `P-IMP-${Math.floor(1000 + Math.random() * 9000)}`;
-    const item = normalizeInspectionResponse(rawJson, partId, objectUrl);
+    const item = normalizeInspectionResponse(rawJson, file.name, objectUrl);
+    item.fileName = file.name;
 
     const source = rawJson.backend_target
       ? "live-backend"
