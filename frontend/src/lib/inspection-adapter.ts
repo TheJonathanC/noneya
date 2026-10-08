@@ -69,7 +69,18 @@ export interface InspectionItem {
     defect_type?: string;
     severity?: string;
     original_image_base64?: string;
+    original_url?: string;
     heatmap_image_base64?: string;
+    heatmap_png_url?: string;
+    hotspots?: Array<{
+      x: number;
+      y: number;
+      zone: string;
+      severity: string;
+      area_frac: number;
+      peak_z?: number;
+      score?: number;
+    }>;
     segmentation_instances?: SegmentationInstance[];
   };
 }

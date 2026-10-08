@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useRef } from "react";
-import Image from "next/image";
 import {
   Layers,
   Eye,
@@ -35,6 +34,15 @@ export interface DefectSegmenterProps {
   severity?: "Critical" | "High" | "Moderate" | "Minor" | "Nominal" | string;
   confidence?: number | string;
   stationName?: string;
+  hotspots?: Array<{
+    x: number;
+    y: number;
+    zone: string;
+    severity: string;
+    area_frac: number;
+    peak_z?: number;
+    score?: number;
+  }>;
   className?: string;
 }
 
@@ -87,17 +95,20 @@ export function DefectSegmenter({
   severity = "Critical",
   confidence = 94.8,
   stationName = "Station 04 • Casting Cell B",
+  hotspots,
   className = "",
 }: DefectSegmenterProps) {
   // View mode switcher:
-  // 'perception' = AI instance segmentation silhouette masks + floating pill tags (matching reference image)
+  // 'perception' = AI instance segmentation silhouette masks + floating pill tags
   // 'combined'   = Segmentation masks + Grad-CAM heatmap together
   // 'overlay'    = Blended Grad-CAM heatmap overlay
   // 'heatmap'    = Heatmap solo
-  // 'split'      = Dual side-by-side
+  // 'split'      = Dual side-by-side comparison
   // 'original'   = Optical capture alone
-  const [viewMode, setViewMode] = useState<"perception" | "combined" | "overlay" | "heatmap" | "split" | "original">("perception");
-  
+  const [viewMode, setViewMode] = useState<
+    "perception" | "combined" | "overlay" | "heatmap" | "split" | "original"
+  >("perception");
+
   const [showMask, setShowMask] = useState<boolean>(true);
   const [showBadges, setShowBadges] = useState<boolean>(true);
   const [showContours, setShowContours] = useState<boolean>(true);
@@ -142,6 +153,8 @@ export function DefectSegmenter({
     );
   });
 
+  const primaryHotspot = hotspots && hotspots.length > 0 ? hotspots[0] : null;
+
   const hasOriginal = Boolean(originalImage && originalImage.trim().length > 0);
   const hasHeatmap = Boolean(resolvedHeatmap && resolvedHeatmap.trim().length > 0);
 
@@ -149,32 +162,75 @@ export function DefectSegmenter({
   const handleZoomOut = () => setZoomLevel((prev) => Math.max(prev - 0.5, 1));
   const handleResetZoom = () => setZoomLevel(1);
 
-  const activeInstance = instances.find((i) => i.id === (hoveredInstanceId || selectedInstanceId));
+  const activeInstance = instances.find(
+    (i) => i.id === (hoveredInstanceId || selectedInstanceId)
+  );
+
+  const tabs = [
+    {
+      id: "perception" as const,
+      label: "Image Segmentation",
+      icon: Crosshair,
+      description: "AI instance polygon silhouettes and detection callouts",
+    },
+    {
+      id: "combined" as const,
+      label: "Combined HUD",
+      icon: Sparkles,
+      description: "Segmentation contours fused with Grad-CAM heatmap",
+    },
+    {
+      id: "overlay" as const,
+      label: "Grad-CAM Overlay",
+      icon: Layers,
+      description: "Blended thermal Grad-CAM heatmap over metal surface",
+    },
+    {
+      id: "heatmap" as const,
+      label: "Heatmap Solo",
+      icon: Flame,
+      description: "Pure JET thermal spectrum activation map",
+    },
+    {
+      id: "split" as const,
+      label: "Side-by-Side",
+      icon: Columns,
+      description: "Split comparison: optical original vs AI diagnosis",
+    },
+    {
+      id: "original" as const,
+      label: "Original Optical",
+      icon: Eye,
+      description: "Raw high-resolution photographic capture",
+    },
+  ];
 
   return (
     <div
-      className={`flex flex-col bg-slate-950 border border-slate-800 rounded-2xl overflow-hidden shadow-2xl transition-all duration-200 ${
-        isExpanded ? "fixed inset-4 z-50 shadow-[0_0_50px_rgba(0,0,0,0.85)] border-slate-700" : "relative"
+      className={`flex flex-col bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl overflow-hidden shadow-xs transition-all duration-200 ${
+        isExpanded
+          ? "fixed inset-4 z-50 shadow-2xl border-[#D5CDC0] bg-[#FAF8F5]"
+          : "relative"
       } ${className}`}
     >
-      {/* 1. Industrial Header Bar */}
-      <div className="px-4 py-3 bg-slate-900/90 border-b border-slate-800/80 backdrop-blur-md flex flex-wrap items-center justify-between gap-3 text-xs">
-        {/* Left: Defect & Station Status Indicator */}
-        <div className="flex items-center gap-3 min-w-0">
+      {/* 1. Header Bar: Station status, defect badge, and quick tools */}
+      <div className="px-4 py-3 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-3 text-xs">
+        {/* Left: Station & Defect Tag */}
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="flex items-center gap-2">
             <span className="relative flex h-2.5 w-2.5">
               <span
                 className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  isCritical ? "bg-red-400" : "bg-emerald-400"
+                  isCritical ? "bg-[#EF4444]" : "bg-[#22C55E]"
                 }`}
               />
               <span
                 className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                  isCritical ? "bg-red-500" : "bg-emerald-500"
+                  isCritical ? "bg-[#DC2626]" : "bg-[#16A34A]"
                 }`}
               />
             </span>
-            <span className="font-mono text-[11px] font-semibold tracking-wider text-slate-300 uppercase">
+            <span className="font-mono text-[11px] font-semibold tracking-wider text-[#78716A] uppercase">
               {stationName}
             </span>
           </div>
@@ -182,122 +238,46 @@ export function DefectSegmenter({
           <div
             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
               isCritical
-                ? "bg-red-950/60 border-red-500/40 text-red-300 shadow-[0_0_12px_rgba(239,68,68,0.2)]"
-                : "bg-emerald-950/60 border-emerald-500/40 text-emerald-300"
+                ? "bg-[#FEF2F2] border-[#FCA5A5]/70 text-[#991B1B]"
+                : "bg-[#F0FDF4] border-[#86EFAC]/70 text-[#166534]"
             }`}
           >
-            {isCritical ? <AlertTriangle className="w-3 h-3 shrink-0" /> : <CheckCircle2 className="w-3 h-3 shrink-0" />}
+            {isCritical ? (
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+            ) : (
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+            )}
             <span className="capitalize">{defectType}</span>
             {confidence && (
-              <span className="font-mono opacity-80 text-[10px]">
+              <span className="font-mono opacity-85 text-[10px]">
                 ({typeof confidence === "number" ? `${confidence}%` : confidence})
               </span>
             )}
           </div>
+
+          {primaryHotspot?.zone && (
+            <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-mono font-medium bg-[#F3EFE6] text-[#57534E] border border-[#E5DFD3]">
+              Zone: {primaryHotspot.zone}
+            </span>
+          )}
         </div>
 
-        {/* Center: Perception View Mode Switcher */}
-        <div className="flex items-center bg-slate-950 border border-slate-800 rounded-lg p-0.5">
-          <button
-            type="button"
-            onClick={() => setViewMode("perception")}
-            title="Instance segmentation polygon silhouettes with pinned detection badges"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === "perception"
-                ? "bg-cyan-500/25 text-cyan-200 border border-cyan-500/40 shadow-xs font-semibold"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Crosshair className="w-3.5 h-3.5 text-cyan-400" />
-            <span>AI Segmentation</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("combined")}
-            title="Combined instance segmentation silhouettes and Grad-CAM thermal heatmap"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === "combined"
-                ? "bg-purple-500/25 text-purple-200 border border-purple-500/40 shadow-xs font-semibold"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-            <span>Combined HUD</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("overlay")}
-            title="Grad-CAM thermal heatmap blended over the metal part"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === "overlay"
-                ? "bg-red-600/30 text-red-200 border border-red-500/40 shadow-xs font-semibold"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Layers className="w-3.5 h-3.5 text-red-400" />
-            <span>Grad-CAM</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("heatmap")}
-            title="Pure Grad-CAM thermal heatmap field alone"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === "heatmap"
-                ? "bg-amber-500/30 text-amber-200 border border-amber-500/40 shadow-xs font-semibold"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Flame className="w-3.5 h-3.5 text-amber-400" />
-            <span>Heatmap Solo</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("split")}
-            title="Side-by-side comparison"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === "split"
-                ? "bg-slate-800 text-slate-100 border border-slate-600 shadow-xs font-semibold"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <Columns className="w-3.5 h-3.5 text-slate-300" />
-            <span>Side-by-Side</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setViewMode("original")}
-            title="Raw optical capture without overlay"
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
-              viewMode === "original"
-                ? "bg-slate-800 text-slate-100 border border-slate-600 shadow-xs font-semibold"
-                : "text-slate-400 hover:text-slate-200"
-            }`}
-          >
-            <span>Original</span>
-          </button>
-        </div>
-
-        {/* Right: Quick Action Buttons & Optical Zoom */}
-        <div className="flex items-center gap-2 shrink-0">
-          {/* Toggle Badges Button (when in perception or combined mode) */}
+        {/* Right: Action Buttons (Badges, Mask toggle, Zoom, Settings, Fullscreen) */}
+        <div className="flex items-center gap-1.5 shrink-0">
+          {/* Toggle Badges Button */}
           {(viewMode === "perception" || viewMode === "combined") && (
             <button
               type="button"
               onClick={() => setShowBadges((prev) => !prev)}
-              title={showBadges ? "Hide Floating Object Badges" : "Show Floating Object Badges"}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer ${
+              title={showBadges ? "Hide Detection Badges" : "Show Detection Badges"}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                 showBadges
-                  ? "bg-cyan-950/60 border-cyan-500/50 text-cyan-200"
-                  : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200"
+                  ? "bg-[#F3EFE6] border-[#DDD5C7] text-[#1C1917]"
+                  : "bg-[#FFFFFF] border-[#E5DFD3] text-[#78716A] hover:bg-[#FAF8F5]"
               }`}
             >
-              <Tag className="w-3.5 h-3.5" />
-              <span>{showBadges ? "Labels ON" : "Labels OFF"}</span>
+              <Tag className="w-3.5 h-3.5 text-[#57534E]" />
+              <span className="hidden sm:inline">{showBadges ? "Labels ON" : "Labels OFF"}</span>
             </button>
           )}
 
@@ -308,45 +288,45 @@ export function DefectSegmenter({
             disabled={!hasHeatmap}
             title={showMask ? "Hide AI Layer" : "Show AI Layer"}
             aria-pressed={showMask}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-all cursor-pointer select-none active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed ${
               showMask
-                ? "bg-red-600/20 border-red-500/50 text-red-200 shadow-[0_0_15px_rgba(239,68,68,0.25)] hover:bg-red-600/30"
-                : "bg-slate-800/80 border-slate-700 text-slate-300 hover:bg-slate-700/80"
+                ? "bg-[#1C1917] border-[#1C1917] text-[#FAF8F5]"
+                : "bg-[#FFFFFF] border-[#DDD5C7] text-[#57534E] hover:bg-[#F3EFE6]"
             }`}
           >
-            <Layers className="w-3.5 h-3.5 text-red-400" />
-            <span>{showMask ? "Mask Active" : "Show AI Mask"}</span>
-            {showMask ? <Eye className="w-3 h-3 ml-0.5 text-red-300" /> : <EyeOff className="w-3 h-3 ml-0.5 text-slate-400" />}
+            <Layers className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">{showMask ? "Layer Active" : "Show Layer"}</span>
+            {showMask ? <Eye className="w-3 h-3 ml-0.5 opacity-80" /> : <EyeOff className="w-3 h-3 ml-0.5 opacity-60" />}
           </button>
 
-          {/* Opacity & Parameter Adjust Toggle */}
+          {/* Opacity & Blend Drawer Toggle */}
           <button
             type="button"
             onClick={() => setShowControls((prev) => !prev)}
             aria-expanded={showControls}
-            title="Adjust segmentation & heatmap parameters"
-            className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer active:scale-95 ${
+            title="Adjust layer opacity & blend modes"
+            className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
               showControls
-                ? "bg-slate-800 border-slate-600 text-slate-200"
-                : "bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                ? "bg-[#1C1917] text-[#FAF8F5] border-[#1C1917]"
+                : "bg-[#FFFFFF] border-[#DDD5C7] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
           </button>
 
-          {/* Optical Zoom Controls */}
-          <div className="flex items-center bg-slate-900 border border-slate-800 rounded-lg p-0.5 text-[11px]">
+          {/* Zoom Group */}
+          <div className="flex items-center bg-[#FFFFFF] border border-[#DDD5C7] rounded-lg p-0.5 text-[11px]">
             <button
               type="button"
               onClick={handleZoomOut}
               disabled={zoomLevel <= 1}
               aria-label="Zoom out"
               title="Zoom out"
-              className="p-1 rounded text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+              className="p-1 rounded text-[#78716A] hover:text-[#1C1917] hover:bg-[#F3EFE6] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 font-mono font-medium text-slate-300 tabular-nums select-none min-w-[36px] text-center text-[10px]">
+            <span className="px-1.5 font-mono font-medium text-[#1C1917] tabular-nums select-none min-w-[34px] text-center text-[10px]">
               {Math.round(zoomLevel * 100)}%
             </span>
             <button
@@ -355,7 +335,7 @@ export function DefectSegmenter({
               disabled={zoomLevel >= 3.5}
               aria-label="Zoom in"
               title="Zoom in"
-              className="p-1 rounded text-slate-400 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer active:scale-95"
+              className="p-1 rounded text-[#78716A] hover:text-[#1C1917] hover:bg-[#F3EFE6] disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
@@ -365,34 +345,62 @@ export function DefectSegmenter({
                 onClick={handleResetZoom}
                 aria-label="Reset zoom"
                 title="Reset zoom"
-                className="p-1 ml-0.5 rounded text-amber-400 hover:text-amber-300 cursor-pointer active:scale-95"
+                className="p-1 ml-0.5 rounded text-[#D97706] hover:bg-[#FEF3C7] cursor-pointer"
               >
                 <RotateCcw className="w-3 h-3" />
               </button>
             )}
           </div>
 
-          {/* Expand Fullscreen Button */}
+          {/* Fullscreen Expand Button */}
           <button
             type="button"
             onClick={() => setIsExpanded((prev) => !prev)}
             aria-label={isExpanded ? "Exit enlarged view" : "Enlarge view"}
             title={isExpanded ? "Exit enlarged view" : "Enlarge view"}
-            className="p-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-slate-200 bg-slate-900 transition-colors cursor-pointer active:scale-95"
+            className="p-1.5 rounded-lg border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] bg-[#FFFFFF] hover:bg-[#F3EFE6] transition-colors cursor-pointer"
           >
             {isExpanded ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
         </div>
       </div>
 
-      {/* 2. Secondary Quick Controls Drawer */}
+      {/* 2. Properly Spaced Tabs Bar */}
+      <div className="px-4 py-2.5 bg-[#FCFBF8] border-b border-[#EAE4D7] flex items-center gap-2 overflow-x-auto">
+        {tabs.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = viewMode === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setViewMode(tab.id)}
+              title={tab.description}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
+                isActive
+                  ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
+                  : "bg-[#FFFFFF] border border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+              }`}
+            >
+              <Icon
+                className={`w-3.5 h-3.5 ${
+                  isActive ? "text-[#FAF8F5]" : "text-[#78716A]"
+                }`}
+              />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 3. Collapsible Controls Drawer */}
       {showControls && (
-        <div className="px-4 py-2.5 bg-slate-900/70 border-b border-slate-800/70 flex flex-wrap items-center justify-between gap-4 text-xs backdrop-blur-md">
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
-                <Sparkles className="w-3 h-3 text-cyan-400" />
-                Silhouette Opacity:
+        <div className="px-5 py-3 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-4 text-xs text-[#57534E]">
+          <div className="flex items-center gap-5">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[#78716A] text-[11px] font-medium flex items-center gap-1.5">
+                <Sparkles className="w-3 h-3 text-[#1C1917]" />
+                Layer Opacity:
               </span>
               <input
                 type="range"
@@ -401,9 +409,9 @@ export function DefectSegmenter({
                 step="0.05"
                 value={maskOpacity}
                 onChange={(e) => setMaskOpacity(parseFloat(e.target.value))}
-                className="w-28 accent-cyan-500 cursor-pointer h-1.5 bg-slate-800 rounded-lg"
+                className="w-28 accent-[#1C1917] cursor-pointer h-1.5 bg-[#E5DFD3] rounded-lg"
               />
-              <span className="font-mono text-slate-300 text-[10px] tabular-nums">
+              <span className="font-mono text-[#1C1917] text-[11px] font-semibold tabular-nums">
                 {Math.round(maskOpacity * 100)}%
               </span>
             </div>
@@ -411,28 +419,28 @@ export function DefectSegmenter({
             <button
               type="button"
               onClick={() => setShowContours((prev) => !prev)}
-              className={`px-2 py-0.5 rounded text-[11px] font-mono border transition-colors cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                 showContours
-                  ? "bg-slate-800 text-slate-200 border-slate-600"
-                  : "bg-slate-900 text-slate-500 border-slate-800"
+                  ? "bg-[#FFFFFF] text-[#1C1917] border-[#DDD5C7] font-semibold"
+                  : "bg-[#FAF8F5] text-[#A8A29E] border-[#E5DFD3]"
               }`}
             >
-              Contours: {showContours ? "ON" : "OFF"}
+              Boundary Contours: {showContours ? "ON" : "OFF"}
             </button>
           </div>
 
-          <div className="flex items-center gap-2">
-            <span className="text-slate-400 text-[11px]">Heatmap Blend:</span>
-            <div className="flex items-center rounded-lg bg-slate-950 border border-slate-800 p-0.5">
+          <div className="flex items-center gap-2.5">
+            <span className="text-[#78716A] text-[11px]">Heatmap Blend:</span>
+            <div className="flex items-center rounded-lg bg-[#FFFFFF] border border-[#DDD5C7] p-0.5">
               {(["screen", "multiply", "color-dodge"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   onClick={() => setBlendMode(mode)}
-                  className={`px-2 py-0.5 rounded text-[10px] font-mono capitalize transition-colors cursor-pointer ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium capitalize transition-colors cursor-pointer ${
                     blendMode === mode
-                      ? "bg-slate-800 text-slate-100 font-bold"
-                      : "text-slate-400 hover:text-slate-300"
+                      ? "bg-[#1C1917] text-[#FAF8F5] font-semibold"
+                      : "text-[#78716A] hover:text-[#1C1917]"
                   }`}
                 >
                   {mode}
@@ -443,20 +451,23 @@ export function DefectSegmenter({
         </div>
       )}
 
-      {/* 3. The Perception Segmentation Stage */}
-      <div className="relative p-3 bg-slate-950 overflow-hidden flex-1 flex flex-col justify-center">
+      {/* 4. Inspection Viewport Stage */}
+      <div className="relative p-3 sm:p-4 bg-[#FAF8F5] overflow-hidden flex-1 flex flex-col justify-center">
         <div
           ref={containerRef}
-          className={`relative w-full rounded-xl overflow-hidden border border-slate-800/90 bg-[#07090E] select-none flex items-center justify-center ${
-            isExpanded ? "h-[calc(100vh-160px)]" : "aspect-[4/3] max-h-[520px] min-h-[300px]"
+          className={`relative w-full rounded-xl overflow-hidden border border-[#DDD5C7] bg-[#0A0D12] select-none flex items-center justify-center ${
+            isExpanded
+              ? "h-[calc(100vh-170px)]"
+              : "aspect-[4/3] max-h-[540px] min-h-[320px]"
           }`}
         >
-          {/* Subtle Grid Reticle Calibration Backdrop */}
+          {/* Subtle Technical Reticle Grid Background */}
           <div
             className="absolute inset-0 opacity-15 pointer-events-none"
             style={{
-              backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.2) 1px, transparent 0)",
-              backgroundSize: "24px 24px",
+              backgroundImage:
+                "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.25) 1px, transparent 0)",
+              backgroundSize: "28px 28px",
             }}
           />
 
@@ -470,23 +481,23 @@ export function DefectSegmenter({
           >
             {/* VIEW MODE: SPLIT VIEW (Side-by-Side: Optical vs Segmentation) */}
             {viewMode === "split" ? (
-              <div className="w-full h-full grid grid-cols-2 gap-2 p-2">
+              <div className="w-full h-full grid grid-cols-2 gap-3 p-3">
                 {/* Left Pane: Optical Raw Photo */}
-                <div className="relative h-full rounded-lg overflow-hidden border border-slate-800 bg-slate-900/60 flex items-center justify-center p-2">
+                <div className="relative h-full rounded-lg overflow-hidden border border-[#2E333D] bg-[#0F131A] flex items-center justify-center p-2">
                   <div className="relative inline-block max-w-full max-h-full leading-none">
                     <img
                       src={hasOriginal ? originalImage! : resolvedHeatmap}
                       alt="Optical raw capture"
                       className="max-w-full max-h-[460px] w-auto h-auto object-contain block rounded-lg select-none"
                     />
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-slate-900/90 border border-slate-700 text-[10px] font-mono text-slate-300">
-                      Optical Raw
+                    <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#1C1917]/90 border border-[#3E3834] text-[10px] font-mono text-[#FAF8F5]">
+                      Optical Raw Capture
                     </div>
                   </div>
                 </div>
 
-                {/* Right Pane: AI Segmentation Masks with Floating Badges */}
-                <div className="relative h-full rounded-lg overflow-hidden border border-cyan-900/50 bg-slate-900/60 flex items-center justify-center p-2">
+                {/* Right Pane: AI Diagnostic Overlay */}
+                <div className="relative h-full rounded-lg overflow-hidden border border-[#DC2626]/40 bg-[#0F131A] flex items-center justify-center p-2">
                   <div className="relative inline-block max-w-full max-h-full leading-none">
                     <img
                       src={hasOriginal ? originalImage! : resolvedHeatmap}
@@ -499,7 +510,8 @@ export function DefectSegmenter({
                       className="absolute inset-0 w-full h-full pointer-events-none"
                     >
                       {instances.map((inst) => {
-                        const isHovered = hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                        const isHovered =
+                          hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
                         return (
                           <polygon
                             key={inst.id}
@@ -511,17 +523,23 @@ export function DefectSegmenter({
                             strokeLinejoin="round"
                             className="pointer-events-auto cursor-pointer transition-all duration-150"
                             style={{
-                              filter: isHovered ? "drop-shadow(0 0 8px rgba(255,255,255,0.8))" : "none",
+                              filter: isHovered
+                                ? "drop-shadow(0 0 8px rgba(255,255,255,0.8))"
+                                : "none",
                             }}
                             onMouseEnter={() => setHoveredInstanceId(inst.id)}
                             onMouseLeave={() => setHoveredInstanceId(null)}
-                            onClick={() => setSelectedInstanceId(inst.id === selectedInstanceId ? null : inst.id)}
+                            onClick={() =>
+                              setSelectedInstanceId(
+                                inst.id === selectedInstanceId ? null : inst.id
+                              )
+                            }
                           />
                         );
                       })}
                     </svg>
-                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-cyan-950/90 border border-cyan-700 text-[10px] font-mono text-cyan-200">
-                      Perception Mask
+                    <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#991B1B]/90 border border-[#DC2626] text-[10px] font-mono text-[#FAF8F5]">
+                      AI Diagnostic Overlay
                     </div>
                   </div>
                 </div>
@@ -529,7 +547,6 @@ export function DefectSegmenter({
             ) : (
               /* VIEW MODES: PERCEPTION, COMBINED, OVERLAY, ORIGINAL, HEATMAP SOLO */
               <div className="relative max-w-full max-h-full flex items-center justify-center p-1">
-                {/* Synced Stage: Tight bounding box derived directly from the optical image */}
                 <div className="relative inline-block max-w-full max-h-full leading-none shadow-2xl rounded-lg overflow-hidden">
                   {/* Layer 1: Base Optical Photograph */}
                   <img
@@ -540,20 +557,30 @@ export function DefectSegmenter({
                     }`}
                   />
 
-                  {/* Layer 2: Grad-CAM Thermal Heatmap (Exact 1:1 overlay with base image) */}
-                  {(viewMode === "overlay" || viewMode === "combined" || viewMode === "heatmap") && hasHeatmap && (
-                    <img
-                      src={resolvedHeatmap}
-                      alt="AI Grad-CAM localization defect heatmap"
-                      className="absolute inset-0 w-full h-full object-fill pointer-events-none"
-                      style={{
-                        opacity: viewMode === "heatmap" ? 1 : showMask ? (viewMode === "combined" ? maskOpacity * 0.75 : maskOpacity) : 0,
-                        mixBlendMode: viewMode === "heatmap" ? "normal" : blendMode,
-                      }}
-                    />
-                  )}
+                  {/* Layer 2: Grad-CAM Thermal Heatmap */}
+                  {(viewMode === "overlay" ||
+                    viewMode === "combined" ||
+                    viewMode === "heatmap") &&
+                    hasHeatmap && (
+                      <img
+                        src={resolvedHeatmap}
+                        alt="AI Grad-CAM localization defect heatmap"
+                        className="absolute inset-0 w-full h-full object-fill pointer-events-none"
+                        style={{
+                          opacity:
+                            viewMode === "heatmap"
+                              ? 1
+                              : showMask
+                              ? viewMode === "combined"
+                                ? maskOpacity * 0.75
+                                : maskOpacity
+                              : 0,
+                          mixBlendMode: viewMode === "heatmap" ? "normal" : blendMode,
+                        }}
+                      />
+                    )}
 
-                  {/* Layer 3: Instance Segmentation Polygons / Silhouettes (Exact 1:1 overlay) */}
+                  {/* Layer 3: Instance Segmentation Polygons / Silhouettes */}
                   {(viewMode === "perception" || viewMode === "combined") && showMask && (
                     <svg
                       viewBox="0 0 800 600"
@@ -568,7 +595,8 @@ export function DefectSegmenter({
                       </defs>
 
                       {instances.map((inst) => {
-                        const isHovered = hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                        const isHovered =
+                          hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
                         return (
                           <polygon
                             key={inst.id}
@@ -584,56 +612,66 @@ export function DefectSegmenter({
                             }}
                             onMouseEnter={() => setHoveredInstanceId(inst.id)}
                             onMouseLeave={() => setHoveredInstanceId(null)}
-                            onClick={() => setSelectedInstanceId(inst.id === selectedInstanceId ? null : inst.id)}
+                            onClick={() =>
+                              setSelectedInstanceId(
+                                inst.id === selectedInstanceId ? null : inst.id
+                              )
+                            }
                           />
                         );
                       })}
                     </svg>
                   )}
 
-                  {/* Layer 4: Floating Perception Badges / Pills (Exact 1:1 overlay) */}
-                  {(viewMode === "perception" || viewMode === "combined") && showMask && showBadges && (
-                    <div className="absolute inset-0 pointer-events-none z-20">
-                      {instances.map((inst) => {
-                        const isHovered = hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
-                        return (
-                          <div
-                            key={`badge-${inst.id}`}
-                            style={{
-                              left: `${inst.center.x}%`,
-                              top: `${inst.center.y}%`,
-                            }}
-                            className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer"
-                            onMouseEnter={() => setHoveredInstanceId(inst.id)}
-                            onMouseLeave={() => setHoveredInstanceId(null)}
-                            onClick={() => setSelectedInstanceId(inst.id === selectedInstanceId ? null : inst.id)}
-                          >
-                            {/* Floating Horizontal Pill Badge (Like Reference Screenshot) */}
+                  {/* Layer 4: Floating Perception Badges / Pills */}
+                  {(viewMode === "perception" || viewMode === "combined") &&
+                    showMask &&
+                    showBadges && (
+                      <div className="absolute inset-0 pointer-events-none z-20">
+                        {instances.map((inst) => {
+                          const isHovered =
+                            hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                          return (
                             <div
+                              key={`badge-${inst.id}`}
                               style={{
-                                backgroundColor: inst.badgeBg,
-                                color: inst.badgeTextColor || "#FFFFFF",
+                                left: `${inst.center.x}%`,
+                                top: `${inst.center.y}%`,
                               }}
-                              className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold shadow-lg flex items-center gap-1.5 border border-white/50 backdrop-blur-md whitespace-nowrap transition-all duration-150 select-none ${
-                                isHovered
-                                  ? "scale-110 ring-2 ring-white shadow-[0_0_15px_rgba(255,255,255,0.7)]"
-                                  : "hover:scale-105"
-                              }`}
+                              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer"
+                              onMouseEnter={() => setHoveredInstanceId(inst.id)}
+                              onMouseLeave={() => setHoveredInstanceId(null)}
+                              onClick={() =>
+                                setSelectedInstanceId(
+                                  inst.id === selectedInstanceId ? null : inst.id
+                                )
+                              }
                             >
-                              <span
-                                className={`w-1.5 h-1.5 rounded-full bg-white ${
-                                  inst.category === "defect" ? "animate-ping" : ""
+                              <div
+                                style={{
+                                  backgroundColor: inst.badgeBg,
+                                  color: inst.badgeTextColor || "#FFFFFF",
+                                }}
+                                className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono font-bold shadow-lg flex items-center gap-1.5 border border-white/60 backdrop-blur-md whitespace-nowrap transition-all duration-150 select-none ${
+                                  isHovered
+                                    ? "scale-110 ring-2 ring-white shadow-[0_0_15px_rgba(255,255,255,0.7)]"
+                                    : "hover:scale-105"
                                 }`}
-                              />
-                              <span>
-                                {inst.className}: {inst.confidence}%
-                              </span>
+                              >
+                                <span
+                                  className={`w-1.5 h-1.5 rounded-full bg-white ${
+                                    inst.category === "defect" ? "animate-ping" : ""
+                                  }`}
+                                />
+                                <span>
+                                  {inst.className}: {inst.confidence}%
+                                </span>
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
+                          );
+                        })}
+                      </div>
+                    )}
                 </div>
               </div>
             )}
@@ -641,42 +679,46 @@ export function DefectSegmenter({
 
           {/* Interactive Inspection HUD Details Card (Appears on Hover / Selection) */}
           {activeInstance && (
-            <div className="absolute top-3 right-3 max-w-xs z-30 p-3 rounded-xl bg-slate-900/95 border border-slate-700 backdrop-blur-lg shadow-2xl text-xs space-y-2 pointer-events-auto animate-in fade-in duration-150">
-              <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-1.5">
-                <div className="flex items-center gap-1.5 font-bold text-slate-100">
+            <div className="absolute top-3 right-3 max-w-xs z-30 p-3.5 rounded-xl bg-[#1C1917]/95 border border-[#3E3834] backdrop-blur-md shadow-2xl text-xs space-y-2 pointer-events-auto animate-in fade-in duration-150 text-[#FAF8F5]">
+              <div className="flex items-center justify-between gap-2 border-b border-[#3E3834] pb-2">
+                <div className="flex items-center gap-2 font-bold text-white">
                   <span
                     className="w-2.5 h-2.5 rounded-full inline-block"
                     style={{ backgroundColor: activeInstance.badgeBg }}
                   />
                   <span className="font-mono uppercase">{activeInstance.className}</span>
                 </div>
-                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300">
+                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-[#2C2724] text-[#FAF8F5]">
                   {activeInstance.confidence}% match
                 </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
                 <div>
-                  <span className="text-slate-500 block text-[10px]">Category</span>
-                  <span className="text-slate-300 capitalize">{activeInstance.category}</span>
+                  <span className="text-[#A8A29E] block text-[10px]">Category</span>
+                  <span className="text-white capitalize">{activeInstance.category}</span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block text-[10px]">Area</span>
-                  <span className="text-slate-300">{activeInstance.areaMm2 ? `${activeInstance.areaMm2} mm²` : "Localized"}</span>
+                  <span className="text-[#A8A29E] block text-[10px]">Area</span>
+                  <span className="text-white">
+                    {activeInstance.areaMm2 ? `${activeInstance.areaMm2} mm²` : "Localized"}
+                  </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block text-[10px]">Center Coords</span>
-                  <span className="text-slate-300">X:{activeInstance.center.x}% Y:{activeInstance.center.y}%</span>
+                  <span className="text-[#A8A29E] block text-[10px]">Center Coords</span>
+                  <span className="text-white">
+                    X:{activeInstance.center.x}% Y:{activeInstance.center.y}%
+                  </span>
                 </div>
                 <div>
-                  <span className="text-slate-500 block text-[10px]">Severity</span>
+                  <span className="text-[#A8A29E] block text-[10px]">Severity</span>
                   <span
                     className={`font-semibold ${
                       activeInstance.severity === "Critical"
-                        ? "text-red-400"
+                        ? "text-[#FCA5A5]"
                         : activeInstance.severity === "Warning"
-                        ? "text-amber-400"
-                        : "text-emerald-400"
+                        ? "text-[#FCD34D]"
+                        : "text-[#86EFAC]"
                     }`}
                   >
                     {activeInstance.severity || "Nominal"}
@@ -685,46 +727,47 @@ export function DefectSegmenter({
               </div>
 
               {activeInstance.details && (
-                <p className="text-[10px] text-slate-400 leading-relaxed border-t border-slate-800/80 pt-1">
+                <p className="text-[10px] text-[#D6D3D1] leading-relaxed border-t border-[#3E3834] pt-1.5">
                   {activeInstance.details}
                 </p>
               )}
             </div>
           )}
 
-          {/* Thermal JET Intensity Scale / Legend Bar in Lower Right (when in heatmap / overlay mode) */}
+          {/* Thermal JET Intensity Scale / Legend Bar in Lower Right */}
           {(viewMode === "heatmap" || viewMode === "overlay" || viewMode === "combined") && (
             <div className="absolute bottom-3 right-3 flex items-center gap-2 pointer-events-none select-none z-20">
-              <div className="px-3 py-1.5 rounded-lg bg-slate-900/90 border border-slate-800/90 backdrop-blur-md text-[10px] font-mono text-slate-300 flex items-center gap-2 shadow-lg">
-                <span className="text-slate-400">0.0 (Nominal)</span>
+              <div className="px-3 py-1.5 rounded-lg bg-[#1C1917]/90 border border-[#3E3834] backdrop-blur-md text-[10px] font-mono text-[#FAF8F5] flex items-center gap-2 shadow-lg">
+                <span className="text-[#A8A29E]">0.0 Nominal</span>
                 <div
                   className="w-20 sm:w-28 h-2 rounded-full overflow-hidden"
                   style={{
-                    background: "linear-gradient(to right, #0022FF, #00D5FF, #00FF66, #FFDD00, #FF002B)",
+                    background:
+                      "linear-gradient(to right, #0022FF, #00D5FF, #00FF66, #FFDD00, #FF002B)",
                   }}
                 />
-                <span className="text-red-400 font-semibold">1.0 (Defect)</span>
+                <span className="text-[#FCA5A5] font-semibold">1.0 Defect</span>
               </div>
             </div>
           )}
 
           {/* Status HUD Stamp in Lower Left */}
           <div className="absolute bottom-3 left-3 flex items-center gap-2 pointer-events-none select-none z-20">
-            <div className="px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-800/80 backdrop-blur-md text-[10px] font-mono text-slate-300 flex items-center gap-1.5 shadow-lg">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block" />
-              <span>Optical Feed Raw</span>
+            <div className="px-2.5 py-1 rounded-md bg-[#1C1917]/85 border border-[#3E3834] backdrop-blur-md text-[10px] font-mono text-[#FAF8F5] flex items-center gap-1.5 shadow-lg">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#22C55E] inline-block" />
+              <span>Optical Feed Active</span>
             </div>
 
             {hasHeatmap && (
-              <div className="px-2.5 py-1 rounded-md bg-slate-900/80 border border-slate-700/80 backdrop-blur-md text-[10px] font-mono text-slate-300 flex items-center gap-1.5 shadow-lg">
+              <div className="px-2.5 py-1 rounded-md bg-[#1C1917]/85 border border-[#3E3834] backdrop-blur-md text-[10px] font-mono text-[#FAF8F5] flex items-center gap-1.5 shadow-lg">
                 <span
                   className={`w-1.5 h-1.5 rounded-full animate-pulse inline-block ${
-                    viewMode === "perception" ? "bg-cyan-400" : "bg-red-400"
+                    viewMode === "perception" ? "bg-[#38BDF8]" : "bg-[#EF4444]"
                   }`}
                 />
-                <span>
-                  Mode: {viewMode.toUpperCase()}
-                  {viewMode === "perception" && ` • ${instances.length} INSTANCES`}
+                <span className="uppercase">
+                  Mode: {viewMode}
+                  {viewMode === "perception" && ` • ${instances.length} Objects`}
                 </span>
               </div>
             )}
