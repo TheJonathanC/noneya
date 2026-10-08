@@ -11,7 +11,6 @@ import {
   Maximize2,
   Minimize2,
   AlertTriangle,
-  Sliders,
   Sparkles,
   Columns,
   Flame,
@@ -109,14 +108,19 @@ export function DefectSegmenter({
     "perception" | "combined" | "overlay" | "heatmap" | "split" | "original"
   >("perception");
 
+  // In side-by-side split view: what overlay to compare against optical photo
+  // 'heatmap' = Original vs Grad-CAM Heatmap
+  // 'segmentation' = Original vs AI Defect Outlines
+  // 'combined' = Original vs Combined HUD
+  // 'all' = 3-way split: Original vs Heatmap vs Defect Outlines
+  const [splitOverlay, setSplitOverlay] = useState<
+    "heatmap" | "segmentation" | "combined" | "all"
+  >("heatmap");
+
   const [showMask, setShowMask] = useState<boolean>(true);
   const [showBadges, setShowBadges] = useState<boolean>(true);
-  const [showContours, setShowContours] = useState<boolean>(true);
-  const [maskOpacity, setMaskOpacity] = useState<number>(0.65);
-  const [blendMode, setBlendMode] = useState<"screen" | "multiply" | "color-dodge">("screen");
   const [zoomLevel, setZoomLevel] = useState<number>(1);
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
-  const [showControls, setShowControls] = useState<boolean>(false);
   const [hoveredInstanceId, setHoveredInstanceId] = useState<string | null>(null);
   const [selectedInstanceId, setSelectedInstanceId] = useState<string | null>(null);
 
@@ -243,7 +247,7 @@ export function DefectSegmenter({
           })}
         </div>
 
-        {/* Right: Clean Viewport Utilities (Zoom, Opacity, Fullscreen) */}
+        {/* Right: Clean Viewport Utilities (Zoom, Fullscreen) */}
         <div className="flex items-center gap-1.5 shrink-0 ml-auto py-0.5">
           {/* Toggle Mask Visibility */}
           <button
@@ -260,21 +264,6 @@ export function DefectSegmenter({
           >
             {showMask ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{showMask ? "AI Layer" : "Hidden"}</span>
-          </button>
-
-          {/* Opacity Drawer Toggle */}
-          <button
-            type="button"
-            onClick={() => setShowControls((prev) => !prev)}
-            aria-expanded={showControls}
-            title="Adjust layer transparency"
-            className={`p-1.5 rounded-lg border text-xs transition-colors cursor-pointer ${
-              showControls
-                ? "bg-[#1C1917] text-[#FAF8F5] border-[#1C1917]"
-                : "bg-[#FFFFFF] border-[#DDD5C7] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
           </button>
 
           {/* Zoom Group */}
@@ -310,7 +299,7 @@ export function DefectSegmenter({
                 title="Reset zoom"
                 className="p-1 ml-0.5 rounded text-[#D97706] hover:bg-[#FEF3C7] cursor-pointer"
               >
-                <RotateCcw className="w-3 h-3" />
+                <RotateCcw className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -328,61 +317,62 @@ export function DefectSegmenter({
         </div>
       </div>
 
-      {/* 3. Collapsible Controls Drawer */}
-      {showControls && (
-        <div className="px-5 py-3 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-4 text-xs text-[#57534E]">
-          <div className="flex items-center gap-5">
-            <div className="flex items-center gap-2.5">
-              <span className="text-[#78716A] text-[11px] font-medium flex items-center gap-1.5">
-                <Sparkles className="w-3 h-3 text-[#1C1917]" />
-                Layer Opacity:
-              </span>
-              <input
-                type="range"
-                min="0.1"
-                max="1"
-                step="0.05"
-                value={maskOpacity}
-                onChange={(e) => setMaskOpacity(parseFloat(e.target.value))}
-                className="w-28 accent-[#1C1917] cursor-pointer h-1.5 bg-[#E5DFD3] rounded-lg"
-              />
-              <span className="font-mono text-[#1C1917] text-[11px] font-semibold tabular-nums">
-                {Math.round(maskOpacity * 100)}%
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setShowContours((prev) => !prev)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
-                showContours
-                  ? "bg-[#FFFFFF] text-[#1C1917] border-[#DDD5C7] font-semibold"
-                  : "bg-[#FAF8F5] text-[#A8A29E] border-[#E5DFD3]"
-              }`}
-            >
-              Boundary Contours: {showContours ? "ON" : "OFF"}
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2.5">
-            <span className="text-[#78716A] text-[11px]">Heatmap Blend:</span>
-            <div className="flex items-center rounded-lg bg-[#FFFFFF] border border-[#DDD5C7] p-0.5">
-              {(["screen", "multiply", "color-dodge"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => setBlendMode(mode)}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium capitalize transition-colors cursor-pointer ${
-                    blendMode === mode
-                      ? "bg-[#1C1917] text-[#FAF8F5] font-semibold"
-                      : "text-[#78716A] hover:text-[#1C1917]"
-                  }`}
-                >
-                  {mode}
-                </button>
-              ))}
+      {/* Side-by-Side Comparison Selector Sub-Bar */}
+      {viewMode === "split" && (
+        <div className="px-4 py-2 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="text-[#78716A] font-medium text-[11px]">Compare Optical Photo With:</span>
+            <div className="flex items-center gap-1 bg-[#FFFFFF] p-0.5 rounded-xl border border-[#E5DFD3] shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setSplitOverlay("heatmap")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  splitOverlay === "heatmap"
+                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
+                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                }`}
+              >
+                Heatmap
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitOverlay("segmentation")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  splitOverlay === "segmentation"
+                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
+                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                }`}
+              >
+                Defect Outlines
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitOverlay("combined")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  splitOverlay === "combined"
+                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
+                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                }`}
+              >
+                Combined HUD
+              </button>
+              <button
+                type="button"
+                onClick={() => setSplitOverlay("all")}
+                className={`px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  splitOverlay === "all"
+                    ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
+                    : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+                }`}
+              >
+                3-Way Split
+              </button>
             </div>
           </div>
+
+          <span className="text-[11px] text-[#78716A] hidden md:inline font-mono">
+            {splitOverlay === "all" ? "3 Panes Active" : "Dual Comparison Active"}
+          </span>
         </div>
       )}
 
@@ -393,6 +383,8 @@ export function DefectSegmenter({
           className={`relative w-full rounded-xl overflow-hidden border border-[#DDD5C7] bg-[#0A0D12] select-none flex items-center justify-center ${
             isExpanded
               ? "h-[calc(100vh-170px)]"
+              : viewMode === "split"
+              ? "h-[500px] min-h-[440px] max-h-[620px]"
               : "aspect-[4/3] max-h-[540px] min-h-[320px]"
           }`}
         >
@@ -414,70 +406,205 @@ export function DefectSegmenter({
               transformOrigin: "center center",
             }}
           >
-            {/* VIEW MODE: SPLIT VIEW (Side-by-Side: Optical vs Segmentation) */}
+            {/* VIEW MODE: SPLIT VIEW (Side-by-Side Comparison) */}
             {viewMode === "split" ? (
-              <div className="w-full h-full grid grid-cols-2 gap-3 p-3">
-                {/* Left Pane: Optical Raw Photo */}
-                <div className="relative h-full rounded-lg overflow-hidden border border-[#2E333D] bg-[#0F131A] flex items-center justify-center p-2">
+              <div
+                className={`w-full h-full p-3 gap-3 ${
+                  splitOverlay === "all"
+                    ? "grid grid-cols-1 md:grid-cols-3"
+                    : "grid grid-cols-1 sm:grid-cols-2"
+                }`}
+              >
+                {/* Pane 1: Optical Raw Photo */}
+                <div className="relative h-full flex-1 rounded-lg overflow-hidden border border-[#2E333D] bg-[#0F131A] flex items-center justify-center p-2">
                   <div className="relative inline-block max-w-full max-h-full leading-none">
                     <img
                       src={hasOriginal ? originalImage! : resolvedHeatmap}
                       alt="Optical raw capture"
-                      className="max-w-full max-h-[460px] w-auto h-auto object-contain block rounded-lg select-none"
+                      className="max-w-full max-h-[440px] w-auto h-auto object-contain block rounded-lg select-none"
                     />
-                    <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#1C1917]/90 border border-[#3E3834] text-[10px] font-mono text-[#FAF8F5]">
+                    <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#1C1917]/90 border border-[#3E3834] text-[10px] font-mono text-[#FAF8F5] shadow-md">
                       Optical Raw Capture
                     </div>
                   </div>
                 </div>
 
-                {/* Right Pane: AI Diagnostic Overlay */}
-                <div className="relative h-full rounded-lg overflow-hidden border border-[#DC2626]/40 bg-[#0F131A] flex items-center justify-center p-2">
-                  <div className="relative inline-block max-w-full max-h-full leading-none">
-                    <img
-                      src={hasOriginal ? originalImage! : resolvedHeatmap}
-                      alt="Optical base"
-                      className="max-w-full max-h-[460px] w-auto h-auto object-contain block rounded-lg select-none brightness-75"
-                    />
-                    <svg
-                      viewBox="0 0 800 600"
-                      preserveAspectRatio="none"
-                      className="absolute inset-0 w-full h-full pointer-events-none"
-                    >
-                      {instances.map((inst) => {
-                        const isHovered =
-                          hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
-                        return (
-                          <polygon
-                            key={inst.id}
-                            points={inst.points}
-                            fill={inst.color}
-                            fillOpacity={showMask ? maskOpacity : 0}
-                            stroke={showContours ? (isHovered ? "#FFFFFF" : inst.borderColor) : "none"}
-                            strokeWidth={isHovered ? 2.8 : 1.8}
-                            strokeLinejoin="round"
-                            className="pointer-events-auto cursor-pointer transition-all duration-150"
-                            style={{
-                              filter: isHovered
-                                ? "drop-shadow(0 0 8px rgba(255,255,255,0.8))"
-                                : "none",
-                            }}
-                            onMouseEnter={() => setHoveredInstanceId(inst.id)}
-                            onMouseLeave={() => setHoveredInstanceId(null)}
-                            onClick={() =>
-                              setSelectedInstanceId(
-                                inst.id === selectedInstanceId ? null : inst.id
-                              )
-                            }
-                          />
-                        );
-                      })}
-                    </svg>
-                    <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#991B1B]/90 border border-[#DC2626] text-[10px] font-mono text-[#FAF8F5]">
-                      AI Diagnostic Overlay
+                {/* Heatmap Pane (for 'heatmap' or 'all') */}
+                {(splitOverlay === "heatmap" || splitOverlay === "all") && (
+                  <div className="relative h-full flex-1 rounded-lg overflow-hidden border border-[#F59E0B]/40 bg-[#0F131A] flex items-center justify-center p-2">
+                    <div className="relative inline-block max-w-full max-h-full leading-none">
+                      <img
+                        src={hasOriginal ? originalImage! : resolvedHeatmap}
+                        alt="Base optical"
+                        className="max-w-full max-h-[440px] w-auto h-auto object-contain block rounded-lg select-none brightness-90"
+                      />
+                      {showMask && hasHeatmap && (
+                        <img
+                          src={resolvedHeatmap}
+                          alt="Grad-CAM heatmap"
+                          className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-lg"
+                          style={{
+                            opacity: 0.8,
+                            mixBlendMode: "screen",
+                          }}
+                        />
+                      )}
+                      <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#D97706]/90 border border-[#F59E0B] text-[10px] font-mono text-[#FAF8F5] shadow-md">
+                        Grad-CAM Heatmap
+                      </div>
+                      <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-[#1C1917]/90 border border-[#3E3834] text-[9px] font-mono text-[#FAF8F5] flex items-center gap-1.5 shadow-md">
+                        <div
+                          className="w-12 h-1.5 rounded-full"
+                          style={{
+                            background:
+                              "linear-gradient(to right, #0022FF, #00D5FF, #00FF66, #FFDD00, #FF002B)",
+                          }}
+                        />
+                        <span>Thermal Z-Peak</span>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
+
+                {/* Defect Segmentation Pane (for 'segmentation' or 'all') */}
+                {(splitOverlay === "segmentation" || splitOverlay === "all") && (
+                  <div className="relative h-full flex-1 rounded-lg overflow-hidden border border-[#DC2626]/40 bg-[#0F131A] flex items-center justify-center p-2">
+                    <div className="relative inline-block max-w-full max-h-full leading-none">
+                      <img
+                        src={hasOriginal ? originalImage! : resolvedHeatmap}
+                        alt="Optical base"
+                        className="max-w-full max-h-[440px] w-auto h-auto object-contain block rounded-lg select-none brightness-75"
+                      />
+                      {showMask && (
+                        <svg
+                          viewBox="0 0 800 600"
+                          preserveAspectRatio="none"
+                          className="absolute inset-0 w-full h-full pointer-events-none"
+                        >
+                          {instances.map((inst) => {
+                            const isHovered =
+                              hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                            return (
+                              <polygon
+                                key={inst.id}
+                                points={inst.points}
+                                fill={inst.color}
+                                fillOpacity={0.65}
+                                stroke={isHovered ? "#FFFFFF" : inst.borderColor}
+                                strokeWidth={isHovered ? 2.8 : 1.8}
+                                strokeLinejoin="round"
+                                className="pointer-events-auto cursor-pointer transition-all duration-150"
+                                style={{
+                                  filter: isHovered
+                                    ? "drop-shadow(0 0 8px rgba(255,255,255,0.8))"
+                                    : "none",
+                                }}
+                                onMouseEnter={() => setHoveredInstanceId(inst.id)}
+                                onMouseLeave={() => setHoveredInstanceId(null)}
+                                onClick={() =>
+                                  setSelectedInstanceId(
+                                    inst.id === selectedInstanceId ? null : inst.id
+                                  )
+                                }
+                              />
+                            );
+                          })}
+                        </svg>
+                      )}
+                      {showMask && showBadges && (
+                        <div className="absolute inset-0 pointer-events-none z-20">
+                          {instances.map((inst) => (
+                            <div
+                              key={`split-badge-${inst.id}`}
+                              style={{
+                                left: `${inst.center.x}%`,
+                                top: `${inst.center.y}%`,
+                              }}
+                              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto"
+                            >
+                              <div
+                                style={{
+                                  backgroundColor: inst.badgeBg,
+                                  color: inst.badgeTextColor || "#FFFFFF",
+                                }}
+                                className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-lg flex items-center gap-1 border border-white/60"
+                              >
+                                <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                                <span>{inst.className}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#991B1B]/90 border border-[#DC2626] text-[10px] font-mono text-[#FAF8F5] shadow-md">
+                        AI Defect Outlines
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Combined HUD Pane (for 'combined') */}
+                {splitOverlay === "combined" && (
+                  <div className="relative h-full flex-1 rounded-lg overflow-hidden border border-[#8B5CF6]/40 bg-[#0F131A] flex items-center justify-center p-2">
+                    <div className="relative inline-block max-w-full max-h-full leading-none">
+                      <img
+                        src={hasOriginal ? originalImage! : resolvedHeatmap}
+                        alt="Optical base"
+                        className="max-w-full max-h-[440px] w-auto h-auto object-contain block rounded-lg select-none brightness-80"
+                      />
+                      {showMask && hasHeatmap && (
+                        <img
+                          src={resolvedHeatmap}
+                          alt="Grad-CAM heatmap"
+                          className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-lg"
+                          style={{
+                            opacity: 0.65,
+                            mixBlendMode: "screen",
+                          }}
+                        />
+                      )}
+                      {showMask && (
+                        <svg
+                          viewBox="0 0 800 600"
+                          preserveAspectRatio="none"
+                          className="absolute inset-0 w-full h-full pointer-events-none z-10"
+                        >
+                          {instances.map((inst) => {
+                            const isHovered =
+                              hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                            return (
+                              <polygon
+                                key={inst.id}
+                                points={inst.points}
+                                fill={inst.color}
+                                fillOpacity={0.55}
+                                stroke={isHovered ? "#FFFFFF" : inst.borderColor}
+                                strokeWidth={isHovered ? 2.8 : 1.8}
+                                strokeLinejoin="round"
+                                className="pointer-events-auto cursor-pointer transition-all duration-150"
+                                style={{
+                                  filter: isHovered
+                                    ? "drop-shadow(0 0 8px rgba(255,255,255,0.8))"
+                                    : "none",
+                                }}
+                                onMouseEnter={() => setHoveredInstanceId(inst.id)}
+                                onMouseLeave={() => setHoveredInstanceId(null)}
+                                onClick={() =>
+                                  setSelectedInstanceId(
+                                    inst.id === selectedInstanceId ? null : inst.id
+                                  )
+                                }
+                              />
+                            );
+                          })}
+                        </svg>
+                      )}
+                      <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#6D28D9]/90 border border-[#8B5CF6] text-[10px] font-mono text-[#FAF8F5] shadow-md">
+                        Combined HUD
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               /* VIEW MODES: PERCEPTION, COMBINED, OVERLAY, ORIGINAL, HEATMAP SOLO */
@@ -507,10 +634,10 @@ export function DefectSegmenter({
                               ? 1
                               : showMask
                               ? viewMode === "combined"
-                                ? maskOpacity * 0.75
-                                : maskOpacity
+                                ? 0.65
+                                : 0.75
                               : 0,
-                          mixBlendMode: viewMode === "heatmap" ? "normal" : blendMode,
+                          mixBlendMode: viewMode === "heatmap" ? "normal" : "screen",
                         }}
                       />
                     )}
@@ -537,8 +664,8 @@ export function DefectSegmenter({
                             key={inst.id}
                             points={inst.points}
                             fill={inst.color}
-                            fillOpacity={maskOpacity}
-                            stroke={showContours ? (isHovered ? "#FFFFFF" : inst.borderColor) : "none"}
+                            fillOpacity={0.65}
+                            stroke={isHovered ? "#FFFFFF" : inst.borderColor}
                             strokeWidth={isHovered ? 2.8 : 1.8}
                             strokeLinejoin="round"
                             className="pointer-events-auto cursor-pointer transition-all duration-150"
