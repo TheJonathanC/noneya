@@ -671,16 +671,16 @@ async def inspect_batch(files: List[UploadFile] = File(...), batch_id: str = "BA
         diagnostic = diagnose_telemetry(simulated_sensors)
 
         # --- Persist Telemetry to MongoDB ---
-        db_doc = InspectionTelemetry(
-            batch_id=batch_id,
-            machine_id="CAST-CELL-04",
-            timestamp=datetime.now(timezone.utc),
-            classified_defect=defect_type,
-            sensor_readings=simulated_sensors,
-            root_cause=diagnostic,
-        )
         if database.is_db_connected:
             try:
+                db_doc = InspectionTelemetry(
+                    batch_id=batch_id,
+                    machine_id="CAST-CELL-04",
+                    timestamp=datetime.now(timezone.utc),
+                    classified_defect=defect_type,
+                    sensor_readings=simulated_sensors,
+                    root_cause=diagnostic,
+                )
                 await db_doc.insert()
             except Exception as exc:
                 logger.warning(f"Failed to persist inspection telemetry to MongoDB: {exc}")
@@ -688,12 +688,16 @@ async def inspect_batch(files: List[UploadFile] = File(...), batch_id: str = "BA
         # --- STAGE 4: Gemini Incident Report Structuring ---
         gemini_summary = None
         if is_defective:
-            gemini_summary = generate_gemini_report({
-                "gate_status": {"decision": "CRITICAL STOP", "defects": 1, "worst_severity": "Critical"},
-                "root_cause": {"cause": diagnostic["primary_culprit_sensor"], "action": diagnostic["diagnostic_explanation"]},
-                "changepoint": {"change_t": 140},
-                "blast_radius": {"quarantined_count": 15},
-            })
+            try:
+                gemini_summary = generate_gemini_report({
+                    "gate_status": {"decision": "CRITICAL STOP", "defects": 1, "worst_severity": "Critical"},
+                    "root_cause": {"cause": diagnostic["primary_culprit_sensor"], "action": diagnostic["diagnostic_explanation"]},
+                    "changepoint": {"change_t": 140},
+                    "blast_radius": {"quarantined_count": 15},
+                })
+            except Exception as exc:
+                logger.warning(f"Gemini report error: {exc}")
+                gemini_summary = "Quality anomaly localized. Telemetry indicates corrective action required."
 
         batch_results.append({
             "filename": file.filename,

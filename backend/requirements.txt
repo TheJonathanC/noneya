@@ -19,9 +19,7 @@ xgboost>=2.0.0
 joblib>=1.3.2
 shap>=0.44.0
 
-# Deep Learning / Computer Vision
-torch>=2.2.0
-torchvision>=0.17.0
+# Deep Learning / Computer Vision (torch & torchvision installed as lightweight CPU wheels in Dockerfile)
 timm>=1.0.0
 pillow>=10.2.0
 
