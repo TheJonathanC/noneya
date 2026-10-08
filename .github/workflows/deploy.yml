@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - 'backend/**'
+      - '.github/workflows/deploy.yml'
 
 jobs:
   deploy:
@@ -18,16 +19,19 @@ jobs:
           username: root
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
-            # Navigate to the backend directory on the server
+            set -e
+            # Ensure repository is clean and reset any stray server edits
+            cd ~/noneya
+            git reset --hard HEAD
+            git pull origin main
             cd ~/noneya/backend
             
-            # Pull the latest code from GitHub
-            git pull origin main
+            # Rebuild the new container image first
+            docker build -t singularity-api .
             
             # Stop and remove the old container
             docker stop fastapi-app || true
             docker rm fastapi-app || true
             
-            # Rebuild and launch the new container
-            docker build -t singularity-api .
+            # Launch the new container
             docker run -d --name fastapi-app --restart unless-stopped -p 8000:8000 singularity-api

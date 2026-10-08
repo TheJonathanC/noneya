@@ -4,7 +4,11 @@ FROM python:3.10-slim
 # Set the working directory
 WORKDIR /app
 
-# Copy the requirements file and install dependencies
+# Upgrade pip and install lightweight CPU-only PyTorch first (cuts ~3 GB download and permanently caches)
+RUN pip install --no-cache-dir -U pip setuptools wheel && \
+    pip install --no-cache-dir torch torchvision --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Copy the requirements file and install remaining dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
