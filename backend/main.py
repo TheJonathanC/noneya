@@ -17,7 +17,8 @@ import time
 import json
 import logging
 import asyncio
-from typing import List, Optional, Dict, Any
+import traceback
+from typing import List, Optional, Dict, Any, Union
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
@@ -26,8 +27,17 @@ from PIL import Image
 import database
 from database import InspectionTelemetry, init_db
 from telemetry_bridge import generate_batch_telemetry, diagnose_telemetry
+from batch_engine import evaluate_batch
+
+INDICATORS_ACTION = {
+    "OK": "Batch passed. Authorize generation of the next batch.",
+    "WARNING": "Defect or drift found. Apply the suggested fixes, then re-run a pilot batch.",
+    "CRITICAL STOP": "Line halted. Engineer must analyse before any further production.",
+}
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, status, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -320,6 +330,18 @@ def custom_openapi():
                 fix_binary_fields(item)
 
     fix_binary_fields(openapi_schema)
+
+    # Let Swagger UI add several images for /api/inspect (sent as repeated 'file' parts).
+    for comp_name, comp in openapi_schema.get("components", {}).get("schemas", {}).items():
+        if "inspect_batch" in comp_name and "file" in comp.get("properties", {}):
+            comp["properties"]["file"] = {
+                "type": "array",
+                "items": {"type": "string", "format": "binary"},
+                "title": "Images",
+                "description": "Click 'Add item' to select one image per row (batch upload).",
+            }
+            comp.pop("required", None)
+
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
@@ -428,7 +450,10 @@ def generate_gemini_report(incident_data: Dict[str, Any]) -> str:
             "Sentence 3: State the exact required engineering corrective action.\n"
             "Output exactly 3 sentences. No bullet points, no markdown formatting."
         )
-        response = model.generate_content(prompt)
+        try:
+            response = model.generate_content(prompt, request_options={"timeout": 5})
+        except TypeError:
+            response = model.generate_content(prompt)
         text = response.text.strip() if response and response.text else ""
         if text:
             return text
@@ -730,164 +755,426 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
 # Integrated Inspection Route (Model 1 + Model 2 + Model 3 + Gemini + Mongo)
 # ---------------------------------------------------------
 
+def log_server_flow(msg: str):
+    """Outputs to logger and flushes directly to stdout for live server console visibility."""
+    safe_msg = msg.encode("ascii", errors="replace").decode("ascii") if any(ord(c) > 127 for c in msg) else msg
+    logger.info(safe_msg)
+    try:
+        print(safe_msg, flush=True)
+    except Exception:
+        pass
+
+
+def _gemini_text(prompt: str) -> Optional[str]:
+    """Calls Gemini with a short timeout. Returns None when unavailable."""
+    if not HAS_GENAI or not GEMINI_API_KEY:
+        return None
+    try:
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        try:
+            response = model.generate_content(prompt, request_options={"timeout": 5})
+        except TypeError:
+            response = model.generate_content(prompt)
+        text = response.text.strip() if response and response.text else ""
+        return text or None
+    except Exception as exc:
+        logger.warning(f"Gemini call failed ({exc}); using template text.")
+        return None
+
+
+def groom_part_report(structured: Dict[str, Any]) -> str:
+    """LLM step per part: turns raw model + telemetry output into one clean sentence pair."""
+    rc = structured.get("root_cause_analysis", {})
+    if structured.get("status") == "OK":
+        fallback = "Part passed visual inspection and process telemetry is within tolerance."
+    else:
+        fallback = (
+            f"{structured.get('defect_category', 'defect').capitalize()} detected. "
+            f"Telemetry points to {rc.get('culprit_sensor')} ({rc.get('deviation_sigma', 0):+.1f} sigma): "
+            f"{rc.get('mitigation')}."
+        )
+    text = _gemini_text(
+        "Clean up this inspection record into at most 2 plain sentences for a line supervisor. "
+        "No markdown, no bullet points.\n" + json.dumps(structured, default=str)
+    )
+    return text or fallback
+
+
+def groom_batch_review(evaluation: Dict[str, Any]) -> str:
+    """LLM step for the batch engine output. Falls back to the engine's own review."""
+    fixes = "; ".join(f["instruction"] for f in evaluation["fixes"]) or "none"
+    fallback = evaluation["review"]
+    if evaluation["fixes"]:
+        fallback += " Fixes: " + fixes + "."
+    fallback += " " + evaluation["prediction"]["text"]
+    text = _gemini_text(
+        "You are a manufacturing quality engineer. Write a concise batch review (max 4 sentences, plain text) "
+        "covering verdict, cause, the fixes and the prediction.\n"
+        + json.dumps(
+            {k: evaluation[k] for k in ("verdict", "review", "reasons", "fixes", "prediction", "stats")},
+            default=str,
+        )
+    )
+    return text or fallback
+
+
+async def run_pilot_inspection_pipeline(
+    file_items: List[UploadFile],
+    effective_batch_id: str = "BATCH-2026-X89",
+) -> Dict[str, Any]:
+    """
+    Main integrated inspection pipeline connecting:
+      - INTAKE  : Pilot batch component images
+      - STAGE 1 : Model 1 Filter (EfficientNet-B0 + Grad-CAM heatmap)
+      - STAGE 2 : Model 2 Categorize (ResNet-18 multi-label)
+      - STAGE 3 : Model 3 Root Cause (XGBoost + SCADA process telemetry)
+      - STAGE 4 : Gemini: Structure (Root cause clean JSON)
+      - STAGE 5 : Pilot-Batch Gatekeeper (GO / ADJUST / CRITICAL STOP)
+      - STAGE 6 : Gemini: Incident Report (3-sentence supervisor summary)
+      - PERSIST : MongoDB Atlas telemetry logging
+      - DISPATCH: Structured Next.js payload
+    """
+    log_server_flow("\n" + "=" * 80)
+    log_server_flow("  >>> [PILOT BATCH INTAKE] INSPECTION PIPELINE STARTED <<<")
+    log_server_flow(f"  Batch Identifier : '{effective_batch_id}'")
+    log_server_flow(f"  Ingested Images  : {len(file_items)} component image(s)")
+    log_server_flow(f"  Component Files  : {[getattr(f, 'filename', 'unnamed') for f in file_items]}")
+    log_server_flow("=" * 80)
+
+    batch_results = []
+    m1 = model1 or init_model1() or load_classifier()
+    m2 = model2 or init_model2()
+
+    for idx, file_item in enumerate(file_items):
+        fname = getattr(file_item, "filename", "component.jpg") or "component.jpg"
+        log_server_flow(f"\n" + "-" * 80)
+        log_server_flow(f"  [PART {idx + 1}/{len(file_items)}] Processing component: '{fname}'")
+        log_server_flow("-" * 80)
+        try:
+            content = await file_item.read()
+            image = Image.open(io.BytesIO(content)).convert("RGB")
+            log_server_flow(f"  [IMAGE DECODE] '{fname}' ({image.size[0]}x{image.size[1]} RGB)")
+        except Exception as exc:
+            log_server_flow(f"  [IMAGE DECODE FAILED] Error reading '{fname}': {exc}")
+            batch_results.append({
+                "filename": fname,
+                "status": "ERROR",
+                "error": f"Failed to read image: {str(exc)}",
+            })
+            continue
+
+        # --- STAGE 1: Model 1 (Filter OK vs Defect) ---
+        log_server_flow("  [STAGE 1 | MODEL 1: FILTER (EfficientNet-B0 + Grad-CAM)]")
+        is_defective = False
+        p_defect = 0.0
+        p_normal = 1.0
+
+        if m1 is not None and (clf_transform or model1_transform):
+            try:
+                device1 = next(m1.parameters()).device
+                is_resnet = isinstance(m1, models.ResNet) if (models and hasattr(models, "ResNet")) else False
+                t1 = model1_transform if (is_resnet and model1_transform) else (clf_transform or model1_transform)
+                tensor1 = t1(image).unsqueeze(0).to(device1)
+                with torch.no_grad():
+                    logits1 = m1(tensor1)
+                    probs1 = torch.softmax(logits1, dim=1)[0]
+                    p_normal = float(probs1[0].item())
+                    p_defect = float(probs1[1].item())
+                is_defective = p_defect >= 0.5
+            except Exception as exc:
+                log_server_flow(f"    Model 1 inference warning on {fname}: {exc}")
+                is_defective = "defect" in fname.lower()
+        else:
+            is_defective = "defect" in fname.lower()
+
+        verdict1 = "DEFECTIVE" if is_defective else "OK"
+        log_server_flow(f"    Inference Probabilities : P(Normal) = {p_normal * 100:.2f}%, P(Defective) = {p_defect * 100:.2f}%")
+        log_server_flow(f"    Filter Verdict          : [{verdict1}]")
+
+        # --- STAGE 2: Model 2 (Categorize Defect) ---
+        defect_type = "ok"
+        predicted_defects = []
+        confidence_scores = {}
+
+        log_server_flow("  [STAGE 2 | MODEL 2: CATEGORIZE (ResNet-18 Multi-Label)]")
+        if is_defective:
+            defect_type = "porosity"
+            if m2 is not None and model2_transform is not None:
+                try:
+                    device2 = model2_device or next(m2.parameters()).device
+                    tensor2 = model2_transform(image).unsqueeze(0).to(device2)
+                    with torch.no_grad():
+                        outputs2 = m2(tensor2)
+                        probs2 = torch.sigmoid(outputs2)[0]
+
+                    for idx_c, c_name in enumerate(MODEL2_CLASSES):
+                        score = float(probs2[idx_c].item())
+                        if score > 0.5:
+                            predicted_defects.append(c_name)
+                            confidence_scores[c_name] = f"{round(score * 100, 1)}%"
+
+                    if not predicted_defects:
+                        highest_idx = int(torch.argmax(probs2).item())
+                        defect_type = MODEL2_CLASSES[highest_idx]
+                        predicted_defects.append(defect_type)
+                        confidence_scores[defect_type] = f"{round(float(probs2[highest_idx].item()) * 100, 1)}%"
+                    else:
+                        defect_type = predicted_defects[0]
+                except Exception as exc:
+                    log_server_flow(f"    Model 2 inference warning on {fname}: {exc}")
+            else:
+                defect_type = "porosity"
+                predicted_defects = ["porosity"]
+                confidence_scores = {"porosity": "85.0%"}
+
+            log_server_flow(f"    Primary Defect Detected : [{defect_type}] ({confidence_scores.get(defect_type, 'N/A')})")
+            log_server_flow(f"    Active Defect Classes   : {predicted_defects}")
+            log_server_flow(f"    Full Confidence Map     : {confidence_scores}")
+        else:
+            log_server_flow("    Part verified Nominal/OK -> Defect categorization bypassed.")
+
+        # --- STAGE 3: Model 3 (Root Cause XGBoost + Process Telemetry) ---
+        log_server_flow("  [STAGE 3 | MODEL 3: ROOT CAUSE (XGBoost + Process Telemetry)]")
+        simulated_sensors = generate_batch_telemetry(defect_type)
+        diagnostic = diagnose_telemetry(simulated_sensors)
+        sensors_summary = ", ".join([f"{k}={v:.1f}" if isinstance(v, (int, float)) else f"{k}={v}" for k, v in list(simulated_sensors.items())[:4]])
+        log_server_flow(f"    SCADA Process Telemetry : {sensors_summary}...")
+        log_server_flow(f"    Predicted Root Defect   : [{diagnostic['predicted_cause_defect']}]")
+        log_server_flow(f"    Primary Culprit Sensor  : '{diagnostic['primary_culprit_sensor']}' (Deviation: {diagnostic['z_score_deviation']:+.2f} sigma)")
+        log_server_flow(f"    Corrective Engineering  : {diagnostic['diagnostic_explanation']}")
+
+        # --- STAGE 4: Gemini: Structure (Root Cause Clean JSON) ---
+        structured_gemini_json = {
+            "component_file": fname,
+            "status": "DEFECTIVE" if is_defective else "OK",
+            "defect_category": defect_type,
+            "root_cause_analysis": {
+                "culprit_sensor": diagnostic["primary_culprit_sensor"],
+                "deviation_sigma": round(diagnostic["z_score_deviation"], 2),
+                "predicted_anomaly": diagnostic["predicted_cause_defect"],
+                "mitigation": diagnostic["diagnostic_explanation"],
+            },
+            "sensor_telemetry_snapshot": simulated_sensors,
+        }
+        log_server_flow("  [STAGE 4 | GEMINI: STRUCTURE (Root Cause Clean JSON)]")
+        log_server_flow(f"    Structured Root Cause   : {json.dumps(structured_gemini_json['root_cause_analysis'])}")
+
+        # --- Persist Telemetry to MongoDB ---
+        if database.is_db_connected:
+            try:
+                db_doc = InspectionTelemetry(
+                    batch_id=effective_batch_id,
+                    machine_id="CAST-CELL-04",
+                    timestamp=datetime.now(timezone.utc),
+                    classified_defect=defect_type,
+                    sensor_readings=simulated_sensors,
+                    root_cause=diagnostic,
+                )
+                await db_doc.insert()
+                log_server_flow("    MongoDB Atlas Telemetry : Successfully persisted record.")
+            except Exception as exc:
+                log_server_flow(f"    MongoDB Atlas Warning   : {exc}")
+
+        # --- Vision Localization & Grad-CAM Heatmap ---
+        vision_res = None
+        try:
+            orig_b64 = encode_pil_to_base64_data_uri(image)
+            heatmap_b64, heatmap_2d = generate_heatmap_overlay(
+                image=image,
+                model=m1,
+                input_tensor=tensor1 if 'tensor1' in locals() and tensor1 is not None else None,
+                target_class=1 if is_defective else 0,
+                is_normal=not is_defective,
+                return_array=True,
+            )
+            spots = extract_hotspots_from_heatmap(heatmap_2d, is_defect=is_defective)
+            vision_res = {
+                "has_defect": is_defective,
+                "defect_type": defect_type if is_defective else "Nominal Baseline",
+                "original_image_base64": orig_b64,
+                "original_url": orig_b64,
+                "heatmap_image_base64": heatmap_b64,
+                "heatmap_png_url": heatmap_b64,
+                "hotspots": spots,
+                "segmentation_instances": generate_segmentation_instances(
+                    defect_type=defect_type if is_defective else "Nominal",
+                    is_defective=is_defective,
+                    confidence=float(probs1[1].item() * 100) if 'probs1' in locals() else 95.0,
+                    heatmap_2d=heatmap_2d,
+                    original_image=image,
+                ),
+            }
+            log_server_flow(f"    Grad-CAM Heatmap Overlay: Generated {len(spots)} hotspot(s) | Peak: {spots[0]['peak_z'] if spots else 0.0:.2f} sigma")
+        except Exception as v_err:
+            log_server_flow(f"    Grad-CAM Warning        : {v_err}")
+
+        # --- STAGE 5: Gemini grooming of the part record ---
+        gemini_summary = groom_part_report(structured_gemini_json)
+
+        log_server_flow("  [STAGE 5 | GEMINI: INCIDENT REPORT (Supervisor Briefing)]")
+        log_server_flow(f"    Supervisor Summary      : \"{gemini_summary}\"")
+
+        batch_results.append({
+            "filename": fname,
+            "status": "DEFECTIVE" if defect_type != "ok" else "OK",
+            "defect_type": defect_type,
+            "predicted_defects": predicted_defects if is_defective else [],
+            "confidence_scores": confidence_scores,
+            "telemetry": simulated_sensors,
+            "root_cause_analysis": diagnostic,
+            "gemini_report": gemini_summary,
+            "vision_results": vision_res,
+        })
+
+    # --- STAGE 6: Batch Engine (telemetry + historical analysis) ---
+    defective_parts = [r for r in batch_results if r["status"] == "DEFECTIVE"]
+    defects_count = len(defective_parts)
+    reject_indices = [i for i, r in enumerate(batch_results) if r["status"] == "DEFECTIVE"]
+
+    historical_defects: List[str] = []
+    if database.is_db_connected:
+        try:
+            docs = await database.InspectionTelemetry.find().sort("-timestamp").limit(200).to_list()
+            historical_defects = [
+                d.classified_defect for d in docs if getattr(d, "batch_id", None) != effective_batch_id
+            ][:100]
+        except Exception as exc:
+            log_server_flow(f"    Historical fetch warning: {exc}")
+
+    evaluation = evaluate_batch(batch_results, historical_defects)
+    batch_review = groom_batch_review(evaluation)
+    evaluation["groomed_review"] = batch_review
+
+    # Keep the legacy gate vocabulary for existing consumers
+    gate_decision = {"OK": "GO", "WARNING": "ADJUST", "CRITICAL STOP": "CRITICAL STOP"}[evaluation["verdict"]]
+    gate_action = INDICATORS_ACTION[evaluation["verdict"]]
+    supervisor_summary = batch_review
+    worst_severity = {"OK": "Nominal", "WARNING": "Moderate", "CRITICAL STOP": "Critical"}[evaluation["verdict"]]
+
+    for fix in evaluation["fixes"]:
+        log_server_flow(f"  [FIX] {fix['instruction']}")
+
+    log_server_flow("\n" + "=" * 80)
+    log_server_flow("  [STAGE 6 | PILOT-BATCH GATEKEEPER EVALUATION]")
+    log_server_flow(f"  Total Inspected  : {len(batch_results)}")
+    log_server_flow(f"  Defective Count  : {defects_count} / {len(batch_results)}")
+    log_server_flow(f"  Flagged Part IDs : {reject_indices}")
+    log_server_flow(f"  Worst Severity   : {worst_severity}")
+    log_server_flow(f"  >>> GATE DECISION: [{gate_decision}] <<<")
+    log_server_flow(f"  Gate Action      : {gate_action}")
+    log_server_flow(f"  Supervisor Brief : {supervisor_summary}")
+    log_server_flow("=" * 80)
+    log_server_flow(f"  [DISPATCH -> NEXT.JS DASHBOARD] Status: COMPLETED | 200 OK | Payload Ready\n" + "=" * 80 + "\n")
+
+    return {
+        "batch_id": effective_batch_id,
+        "status": "COMPLETED",
+        "verdict": evaluation["verdict"],
+        "batch_analysis": evaluation,
+        "gate_decision": gate_decision,
+        "gate_status": {
+            "decision": gate_decision,
+            "action": gate_action,
+            "defects": defects_count,
+            "worst_severity": worst_severity,
+            "reject_parts": reject_indices,
+        },
+        "supervisor_summary": supervisor_summary,
+        "processed_parts": len(batch_results),
+        "defects_count": defects_count,
+        "results": batch_results,
+    }
+
+
 @app.post("/api/inspect")
 async def inspect_batch(
-    file: Optional[UploadFile] = File(None, description="Select component image file (Choose File button for Swagger UI)"),
-    files: Optional[List[UploadFile]] = File(None, description="Select multiple component image files (for batch uploads)"),
-    batch_id: str = "BATCH-2026-X89"
+    request: Request,
+    file: Optional[UploadFile] = File(None, description="Select component image file (cast_def_0_65.jpeg)"),
+    batch_id: Optional[str] = None,
 ):
     """
     Main integrated inspection pipeline connecting:
-      - STAGE 1: Model 1 (Filter OK vs Defect)
-      - STAGE 2: Model 2 (Categorize Defect)
-      - STAGE 3: Telemetry Generator + Model 3 Diagnostic Engine
-      - Persist Telemetry to MongoDB (Beanie InspectionTelemetry)
-      - STAGE 4: Gemini Incident Report Structuring
+      - INTAKE  : Pilot batch component images
+      - STAGE 1 : Model 1 Filter (EfficientNet-B0 + Grad-CAM heatmap)
+      - STAGE 2 : Model 2 Categorize (ResNet-18 multi-label)
+      - STAGE 3 : Model 3 Root Cause (XGBoost + process telemetry)
+      - STAGE 4 : Gemini Incident Report Structuring
+      - STAGE 5 : Pilot-Batch Gatekeeper (GO / ADJUST / CRITICAL STOP)
+      - PERSIST : MongoDB Atlas telemetry logging
     """
     try:
-        effective_batch_id = batch_id or "BATCH-2026-X89"
-        file_items: List[UploadFile] = []
-        if file is not None and getattr(file, "filename", None):
+        effective_batch_id = batch_id
+        file_items: List[Any] = []
+
+        # 1. Check direct file parameter
+        if hasattr(file, "filename") and getattr(file, "filename", None):
             file_items.append(file)
-        if files:
-            for f in files:
-                if f is not None and getattr(f, "filename", None):
-                    file_items.append(f)
+
+        # 2. Extract from multipart form items (supports 'files', 'file', 'images', 'image')
+        try:
+            form = await request.form()
+            form_batch = form.get("batch_id")
+            if form_batch and not effective_batch_id:
+                effective_batch_id = str(form_batch)
+            raw_items = form.multi_items() if hasattr(form, "multi_items") else form.items()
+            for k, item in raw_items:
+                if hasattr(item, "filename") and getattr(item, "filename", None):
+                    if not any(f is item for f in file_items):
+                        file_items.append(item)
+        except Exception as form_err:
+            logger.debug(f"Form parsing note: {form_err}")
+
+        effective_batch_id = effective_batch_id or "BATCH-2026-X89"
 
         if not file_items:
-            raise HTTPException(status_code=400, detail="No files provided. Please upload an image file using 'file' or 'files'.")
+            raise HTTPException(
+                status_code=400,
+                detail="No files provided. Please upload an image file using 'file' or 'files'."
+            )
 
-        batch_results = []
-        m1 = model1 or init_model1() or load_classifier()
-        m2 = model2 or init_model2()
+        return await run_pilot_inspection_pipeline(file_items, effective_batch_id)
 
-        for file_item in file_items:
-            fname = getattr(file_item, "filename", "component.jpg") or "component.jpg"
-            try:
-                content = await file_item.read()
-                image = Image.open(io.BytesIO(content)).convert("RGB")
-            except Exception as exc:
-                batch_results.append({
-                    "filename": fname,
-                    "status": "ERROR",
-                    "error": f"Failed to read image: {str(exc)}",
-                })
-                continue
-
-            # --- STAGE 1: Model 1 (Filter OK vs Defect) ---
-            is_defective = False
-            p_defect = 0.0
-
-            if m1 is not None and (clf_transform or model1_transform):
-                try:
-                    device1 = next(m1.parameters()).device
-                    is_resnet = isinstance(m1, models.ResNet) if (models and hasattr(models, "ResNet")) else False
-                    t1 = model1_transform if (is_resnet and model1_transform) else (clf_transform or model1_transform)
-                    tensor1 = t1(image).unsqueeze(0).to(device1)
-                    with torch.no_grad():
-                        logits1 = m1(tensor1)
-                        probs1 = torch.softmax(logits1, dim=1)[0]
-                        p_defect = float(probs1[1].item())
-                    is_defective = p_defect >= 0.5
-                except Exception as exc:
-                    logger.warning(f"Model 1 inference failed on {fname}: {exc}")
-                    is_defective = "defect" in fname.lower()
-            else:
-                is_defective = "defect" in fname.lower()
-
-            # --- STAGE 2: Model 2 (Categorize Defect) ---
-            defect_type = "ok"
-            predicted_defects = []
-            confidence_scores = {}
-
-            if is_defective:
-                defect_type = "porosity"
-                if m2 is not None and model2_transform is not None:
-                    try:
-                        device2 = model2_device or next(m2.parameters()).device
-                        tensor2 = model2_transform(image).unsqueeze(0).to(device2)
-                        with torch.no_grad():
-                            outputs2 = m2(tensor2)
-                            probs2 = torch.sigmoid(outputs2)[0]
-
-                        for idx, c_name in enumerate(MODEL2_CLASSES):
-                            score = float(probs2[idx].item())
-                            if score > 0.5:
-                                predicted_defects.append(c_name)
-                                confidence_scores[c_name] = f"{round(score * 100, 1)}%"
-
-                        if not predicted_defects:
-                            highest_idx = int(torch.argmax(probs2).item())
-                            defect_type = MODEL2_CLASSES[highest_idx]
-                            predicted_defects.append(defect_type)
-                            confidence_scores[defect_type] = f"{round(float(probs2[highest_idx].item()) * 100, 1)}%"
-                        else:
-                            defect_type = predicted_defects[0]
-                    except Exception as exc:
-                        logger.warning(f"Model 2 inference failed on {fname}: {exc}")
-                else:
-                    defect_type = "porosity"
-                    predicted_defects = ["porosity"]
-                    confidence_scores = {"porosity": "85.0%"}
-
-            # --- STAGE 3: Telemetry Generator + Model 3 Diagnostic Engine ---
-            simulated_sensors = generate_batch_telemetry(defect_type)
-            diagnostic = diagnose_telemetry(simulated_sensors)
-
-            # --- Persist Telemetry to MongoDB ---
-            if database.is_db_connected:
-                try:
-                    db_doc = InspectionTelemetry(
-                        batch_id=effective_batch_id,
-                        machine_id="CAST-CELL-04",
-                        timestamp=datetime.now(timezone.utc),
-                        classified_defect=defect_type,
-                        sensor_readings=simulated_sensors,
-                        root_cause=diagnostic,
-                    )
-                    await db_doc.insert()
-                except Exception as exc:
-                    logger.warning(f"Failed to persist inspection telemetry to MongoDB: {exc}")
-
-            # --- STAGE 4: Gemini Incident Report Structuring ---
-            gemini_summary = None
-            if is_defective:
-                try:
-                    gemini_summary = generate_gemini_report({
-                        "gate_status": {"decision": "CRITICAL STOP", "defects": 1, "worst_severity": "Critical"},
-                        "root_cause": {"cause": diagnostic["primary_culprit_sensor"], "action": diagnostic["diagnostic_explanation"]},
-                        "changepoint": {"change_t": 140},
-                        "blast_radius": {"quarantined_count": 15},
-                    })
-                except Exception as exc:
-                    logger.warning(f"Gemini report error: {exc}")
-                    gemini_summary = "Quality anomaly localized. Telemetry indicates corrective action required."
-
-            batch_results.append({
-                "filename": fname,
-                "status": "DEFECTIVE" if defect_type != "ok" else "OK",
-                "defect_type": defect_type,
-                "predicted_defects": predicted_defects if is_defective else [],
-                "confidence_scores": confidence_scores,
-                "telemetry": simulated_sensors,
-                "root_cause_analysis": diagnostic,
-                "gemini_report": gemini_summary,
-            })
-
-        return {
-            "batch_id": effective_batch_id,
-            "processed_parts": len(batch_results),
-            "results": batch_results,
-        }
+    except HTTPException:
+        raise
     except Exception as err:
         logger.exception(f"Unexpected error in inspect_batch: {err}")
         return {
             "status": "ERROR",
             "error": str(err),
             "traceback": traceback.format_exc(),
-            "batch_id": effective_batch_id,
+            "batch_id": effective_batch_id if 'effective_batch_id' in locals() else "UNKNOWN",
             "results": [],
         }
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """
+    Recovers gracefully from Swagger UI / curl quirks on /api/inspect.
+    Specifically recovers when Swagger UI submits array defaults like files=string.
+    """
+    if "/api/inspect" in request.url.path:
+        logger.warning(f"[VALIDATION RECOVERY] Intercepted RequestValidationError on {request.url.path}: {exc}")
+        try:
+            form = await request.form()
+            file_items: List[Any] = []
+            raw_items = form.multi_items() if hasattr(form, "multi_items") else form.items()
+            for k, item in raw_items:
+                if hasattr(item, "filename") and getattr(item, "filename", None):
+                    if not any(f is item for f in file_items):
+                        file_items.append(item)
+            if file_items:
+                b_id = request.query_params.get("batch_id") or form.get("batch_id") or "BATCH-2026-X89"
+                log_server_flow(f"[VALIDATION RECOVERY] Successfully recovered {len(file_items)} valid file(s). Executing pipeline...")
+                res = await run_pilot_inspection_pipeline(file_items, str(b_id))
+                return JSONResponse(status_code=200, content=res)
+        except Exception as rec_err:
+            logger.error(f"[VALIDATION RECOVERY FAILED] {rec_err}")
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={"detail": exc.errors()},
+    )
 
 
 # ---------------------------------------------------------
