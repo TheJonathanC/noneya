@@ -16,6 +16,8 @@ export interface StagedItem {
   file: File;
   previewUrl: string;
   presetType?: "nominal" | "defective" | "custom";
+  status?: "queued" | "processing" | "completed" | "error";
+  verdict?: "ok" | "defective" | "error";
 }
 
 interface LinenIntakeProps {
@@ -28,6 +30,9 @@ interface LinenIntakeProps {
   isDispatching: boolean;
   onDispatch: () => void;
   activeStep: 1 | 2 | 3;
+  currentProcessingIndex?: number;
+  selectedItemIndex?: number;
+  onSelectItem?: (index: number) => void;
 }
 
 export function LinenIntake({
@@ -39,6 +44,9 @@ export function LinenIntake({
   onClearQueue,
   isDispatching,
   onDispatch,
+  currentProcessingIndex = -1,
+  selectedItemIndex = 0,
+  onSelectItem,
 }: LinenIntakeProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
@@ -221,7 +229,30 @@ export function LinenIntake({
 
       {/* Staged Items List */}
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
-        {stagedItems.length > 0 && (
+        {/* Real-time Sequential Batch Flow Banner */}
+        {isDispatching && mode === "batch" && currentProcessingIndex >= 0 && (
+          <div className="p-3 mb-2 rounded-xl bg-[#FAF8F5] border border-[#DDD5C7] text-xs space-y-2 shadow-2xs">
+            <div className="flex items-center justify-between text-[11px] font-medium text-[#1C1917]">
+              <span className="flex items-center gap-1.5">
+                <RefreshCw aria-hidden="true" className="w-3.5 h-3.5 animate-spin text-[#9A3412]" />
+                <span>Processing Part {currentProcessingIndex + 1} of {stagedItems.length}</span>
+              </span>
+              <span className="font-mono text-[#78716A] tabular-nums font-semibold">
+                {Math.round(((currentProcessingIndex + 1) / stagedItems.length) * 100)}%
+              </span>
+            </div>
+            <div className="w-full bg-[#E5DFD3] h-1.5 rounded-full overflow-hidden">
+              <div
+                className="bg-[#1C1917] h-full rounded-full transition-all duration-300 ease-out"
+                style={{
+                  width: `${((currentProcessingIndex + 1) / stagedItems.length) * 100}%`,
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {stagedItems.length > 0 && !isDispatching && (
           <div className="flex items-center justify-between pb-1">
             <span className="text-[11px] font-medium text-[#78716A]">
               Selected Image{stagedItems.length > 1 ? "s" : ""} ({stagedItems.length})
@@ -236,44 +267,99 @@ export function LinenIntake({
           </div>
         )}
 
-        {stagedItems.map((item) => (
-          <div
-            key={item.id}
-            className="rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] p-2.5 flex items-center gap-3 shadow-2xs text-xs"
-          >
-            {/* Thumbnail */}
-            <div className="relative w-11 h-9 rounded-lg border border-[#E5DFD3] bg-[#0E1017] overflow-hidden shrink-0 flex items-center justify-center">
-              <Image
-                src={item.previewUrl}
-                alt={item.file.name}
-                fill
-                sizes="44px"
-                className="object-cover"
-                unoptimized
-              />
-            </div>
+        {stagedItems.map((item, idx) => {
+          const isCurrent = isDispatching && currentProcessingIndex === idx;
+          const isDone = item.status === "completed";
+          const isQueued = isDispatching && idx > currentProcessingIndex;
+          const isSelected = selectedItemIndex === idx;
 
-            {/* File info */}
-            <div className="flex-1 min-w-0">
-              <div className="font-medium text-[#1C1917] truncate text-xs">
-                {item.file.name}
-              </div>
-              <div className="text-[10px] text-[#78716A] tabular-nums mt-0.5">
-                {(item.file.size / 1024).toFixed(1)} KB
-              </div>
-            </div>
-
-            {/* Remove */}
-            <button
-              type="button"
-              onClick={() => onRemoveItem(item.id)}
-              aria-label={`Remove ${item.file.name}`}
-              className="p-1 rounded text-[#A8A29E] hover:text-[#991B1B] hover:bg-[#FEF2F2] transition-colors cursor-pointer"
+          return (
+            <div
+              key={item.id}
+              onClick={() => {
+                if (isDone && onSelectItem) {
+                  onSelectItem(idx);
+                }
+              }}
+              className={`rounded-xl border p-2.5 flex items-center gap-3 shadow-2xs text-xs transition-all ${
+                isCurrent
+                  ? "border-[#1C1917] bg-[#FFFDF9] ring-2 ring-[#1C1917]/20 shadow-xs"
+                  : isDone
+                  ? isSelected
+                    ? "border-[#1C1917] bg-[#FFFFFF] ring-1 ring-[#1C1917] cursor-pointer"
+                    : "border-[#E5DFD3] bg-[#FFFFFF] hover:bg-[#FAF8F5] cursor-pointer"
+                  : "border-[#E5DFD3] bg-[#FFFFFF]"
+              }`}
             >
-              <X aria-hidden="true" className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
+              {/* Thumbnail */}
+              <div className="relative w-11 h-9 rounded-lg border border-[#E5DFD3] bg-[#0E1017] overflow-hidden shrink-0 flex items-center justify-center">
+                <Image
+                  src={item.previewUrl}
+                  alt={item.file.name}
+                  fill
+                  sizes="44px"
+                  className="object-cover"
+                  unoptimized
+                />
+                {isCurrent && (
+                  <div className="absolute inset-0 bg-[#1C1917]/30 backdrop-blur-[0.5px] flex items-center justify-center">
+                    <RefreshCw aria-hidden="true" className="w-3.5 h-3.5 animate-spin text-[#FAF8F5]" />
+                  </div>
+                )}
+              </div>
+
+              {/* File info */}
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-[#1C1917] truncate text-xs">
+                  {item.file.name}
+                </div>
+                <div className="text-[10px] text-[#78716A] tabular-nums mt-0.5">
+                  {(item.file.size / 1024).toFixed(1)} KB
+                </div>
+              </div>
+
+              {/* Status / Actions */}
+              {isCurrent && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] flex items-center gap-1 animate-pulse shrink-0">
+                  <RefreshCw aria-hidden="true" className="w-2.5 h-2.5 animate-spin" />
+                  <span>Analyzing</span>
+                </span>
+              )}
+
+              {isDone && (
+                <span
+                  className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border shrink-0 ${
+                    item.verdict === "defective"
+                      ? "bg-[#FEF2F2] text-[#991B1B] border-[#FCA5A5]/70"
+                      : "bg-[#F0FDF4] text-[#166534] border-[#86EFAC]/70"
+                  }`}
+                >
+                  {item.verdict === "defective" ? "Defective" : "OK"}
+                </span>
+              )}
+
+              {isQueued && (
+                <span className="text-[10px] text-[#A8A29E] font-mono shrink-0">
+                  Queued
+                </span>
+              )}
+
+              {!isDispatching && !isDone && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRemoveItem(item.id);
+                  }}
+                  aria-label={`Remove ${item.file.name}`}
+                  className="p-1 rounded text-[#A8A29E] hover:text-[#991B1B] hover:bg-[#FEF2F2] transition-colors cursor-pointer shrink-0"
+                >
+                  <X aria-hidden="true" className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          );
+        })}
 
         {stagedItems.length === 0 && (
           <div className="py-10 text-center text-[#78716A] text-xs flex flex-col items-center justify-center gap-2 border border-dashed border-[#E5DFD3] rounded-2xl bg-[#FFFFFF]">

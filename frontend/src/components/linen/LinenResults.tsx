@@ -16,6 +16,7 @@ import {
   Activity,
   Gauge,
   Clock,
+  RefreshCw,
 } from "lucide-react";
 import { InspectionItem } from "@/lib/inspection-adapter";
 import { InspectionError } from "@/lib/api";
@@ -30,6 +31,9 @@ interface LinenResultsProps {
   rawJson: Record<string, unknown> | null;
   isLoading: boolean;
   isBatch: boolean;
+  isBatchProcessing?: boolean;
+  batchProcessingIndex?: number;
+  batchTotalCount?: number;
   gateDecision?: "GO" | "ADJUST" | "CRITICAL STOP";
   batchStats?: { total: number; passed: number; defective: number };
   errorState?: InspectionError | null;
@@ -46,6 +50,9 @@ export function LinenResults({
   rawJson,
   isLoading,
   isBatch,
+  isBatchProcessing = false,
+  batchProcessingIndex = 0,
+  batchTotalCount = 0,
   batchStats,
   errorState,
   onRetry,
@@ -53,8 +60,8 @@ export function LinenResults({
   // Optical image hidden by default
   const [showImage, setShowImage] = useState<boolean>(false);
 
-  // Loading State
-  if (isLoading) {
+  // Loading State: only show full loading overlay if we do NOT yet have an active item to display
+  if (isLoading && !activeItem) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] text-center space-y-4">
         <div className="w-12 h-12 rounded-full border-2 border-[#E5DFD3] border-t-[#1C1917] animate-spin flex items-center justify-center">
@@ -149,8 +156,67 @@ export function LinenResults({
 
   return (
     <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-5">
-      {/* Batch Navigation (when inspecting multiple parts) */}
-      {isBatch && allItems.length > 1 && (
+      {/* Real-time Sequential Batch Flow Animation Banner */}
+      {isBatchProcessing && batchTotalCount > 1 && (
+        <div className="p-4 rounded-2xl border border-[#FDE68A] bg-[#FFFDF5] text-[#92400E] shadow-2xs space-y-3">
+          <div className="flex items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2.5 font-medium">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#D97706] opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#D97706]"></span>
+              </span>
+              <span className="font-semibold text-[#1C1917]">
+                Batch Pipeline: Processing Part {Math.min(batchProcessingIndex + 1, batchTotalCount)} of {batchTotalCount}
+              </span>
+            </div>
+            <span className="font-mono font-semibold text-[11px] tabular-nums text-[#92400E]">
+              {Math.round((Math.min(batchProcessingIndex + 1, batchTotalCount) / batchTotalCount) * 100)}%
+            </span>
+          </div>
+
+          {/* Stepper Progress Bar */}
+          <div className="w-full bg-[#FEF3C7] h-1.5 rounded-full overflow-hidden">
+            <div
+              className="bg-[#D97706] h-full rounded-full transition-all duration-300 ease-out"
+              style={{
+                width: `${(Math.min(batchProcessingIndex + 1, batchTotalCount) / batchTotalCount) * 100}%`,
+              }}
+            />
+          </div>
+
+          {/* Step Pill Flow Badges */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pt-0.5">
+            {Array.from({ length: batchTotalCount }).map((_, idx) => {
+              const isPast = idx < allItems.length;
+              const isCurrent = isBatchProcessing && idx === batchProcessingIndex;
+              const pastItem = allItems[idx];
+              const pastDefective = pastItem?.status === "DEFECTIVE";
+
+              return (
+                <div
+                  key={idx}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-medium flex items-center gap-1 shrink-0 ${
+                    isPast
+                      ? pastDefective
+                        ? "bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5]"
+                        : "bg-[#D1FAE5] text-[#065F46] border border-[#A7F3D0]"
+                      : isCurrent
+                      ? "bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] ring-1 ring-[#F59E0B]/50 font-bold animate-pulse"
+                      : "bg-[#FFFFFF]/70 text-[#A8A29E] border border-[#E5E7EB]"
+                  }`}
+                >
+                  <span>Part {idx + 1}</span>
+                  {isPast && <span>{pastDefective ? "✕" : "✓"}</span>}
+                  {isCurrent && <RefreshCw aria-hidden="true" className="w-2.5 h-2.5 animate-spin" />}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Batch Navigation (when inspecting multiple parts or while batch is active) */}
+      {isBatch && (allItems.length > 1 || isBatchProcessing) && (
         <div className="p-3 bg-[#FFFFFF] rounded-2xl border border-[#E5DFD3] flex items-center justify-between gap-3 shadow-xs">
           <div className="flex items-center gap-2 overflow-x-auto">
             {allItems.map((item, idx) => {
@@ -177,6 +243,13 @@ export function LinenResults({
                 </button>
               );
             })}
+
+            {isBatchProcessing && batchTotalCount > allItems.length && (
+              <div className="px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A] animate-pulse shrink-0">
+                <RefreshCw aria-hidden="true" className="w-3 h-3 animate-spin" />
+                <span>Part {batchProcessingIndex + 1} Analyzing…</span>
+              </div>
+            )}
           </div>
 
           {batchStats && (
