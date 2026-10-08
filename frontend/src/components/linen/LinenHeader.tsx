@@ -17,12 +17,31 @@ export function LinenHeader({
       <div className="max-w-[1600px] mx-auto px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4">
         {/* Brand */}
         <div className="flex items-center gap-3">
-          <div className="w-7 h-7 rounded-lg bg-[#1C1917] text-[#FAF8F5] flex items-center justify-center font-mono font-bold text-xs shadow-xs">
-            A
+          <div className="w-7 h-7 rounded-lg bg-[#1C1917] flex items-center justify-center p-1 shadow-xs shrink-0 select-none">
+            <svg
+              viewBox="0 0 32 32"
+              fill="none"
+              className="w-full h-full"
+              aria-hidden="true"
+            >
+              <circle
+                cx="15"
+                cy="14.5"
+                r="7"
+                stroke="#FAF8F5"
+                strokeWidth="2.75"
+              />
+              <path
+                d="M18.5 18L24 23.5"
+                stroke="#FAF8F5"
+                strokeWidth="2.75"
+                strokeLinecap="round"
+              />
+            </svg>
           </div>
           <div>
             <h1 className="text-sm font-semibold tracking-tight text-[#1C1917]">
-              Aura Inspection
+              Qastra
             </h1>
             <p className="text-[11px] text-[#78716A]">
               Automated Component Quality Analysis

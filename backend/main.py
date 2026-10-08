@@ -260,8 +260,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Singularity 2026 - Automotive Component Quality Inspection API",
-    description="Triple-Model Fusion Backend for Casting Impeller Quality Control",
+    title="Qastra - Component Quality Inspection API",
+    description="Automated Component Quality Inspection and Diagnostic Pipeline",
     version="1.0.0",
     lifespan=lifespan,
 )
