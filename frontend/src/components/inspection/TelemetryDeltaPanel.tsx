@@ -19,27 +19,27 @@ interface TelemetryDeltaPanelProps {
 export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
   const getSensorIcon = (name: string) => {
     const n = name.toLowerCase();
-    if (n.includes("temp")) return <Thermometer aria-hidden="true" className="w-3.5 h-3.5 text-rose-400" />;
-    if (n.includes("press")) return <Gauge aria-hidden="true" className="w-3.5 h-3.5 text-amber-400" />;
-    if (n.includes("cool") || n.includes("flow")) return <Waves aria-hidden="true" className="w-3.5 h-3.5 text-cyan-400" />;
-    return <Zap aria-hidden="true" className="w-3.5 h-3.5 text-indigo-400" />;
+    if (n.includes("temp")) return <Thermometer aria-hidden="true" className="w-3.5 h-3.5 text-[#C2410C]" />;
+    if (n.includes("press")) return <Gauge aria-hidden="true" className="w-3.5 h-3.5 text-[#D97706]" />;
+    if (n.includes("cool") || n.includes("flow")) return <Waves aria-hidden="true" className="w-3.5 h-3.5 text-[#0D9488]" />;
+    return <Zap aria-hidden="true" className="w-3.5 h-3.5 text-[#7C3AED]" />;
   };
 
   return (
-    <Card className="flex flex-col h-full bg-[#12141C] border-[#1F2430]">
-      <CardHeader className="py-2.5 px-4 bg-[#161922]">
+    <Card className="flex flex-col h-full bg-[#FFFFFF] border-[#E5DFD3]">
+      <CardHeader className="py-3 px-4 bg-[#F7F4EC] border-b border-[#E6E0D3]">
         <div className="flex items-center justify-between w-full">
-          <CardTitle className="text-xs text-slate-200 flex items-center gap-2">
-            <Activity aria-hidden="true" className="w-4 h-4 text-cyan-400" />
+          <CardTitle className="text-xs text-[#1C1917] flex items-center gap-2">
+            <Activity aria-hidden="true" className="w-4 h-4 text-[#9A3412]" />
             <span>Process Telemetry & Tolerances</span>
           </CardTitle>
-          <span className="text-[10px] font-mono text-slate-500">
+          <span className="text-[10px] font-mono text-[#78716A]">
             NOMINAL BAND COMPARISON
           </span>
         </div>
       </CardHeader>
 
-      <CardContent className="p-3.5 space-y-3.5 flex-1">
+      <CardContent className="p-4 space-y-3.5 flex-1">
         {telemetry.map((sensor) => {
           const deltaSign = sensor.delta >= 0 ? "+" : "";
           const isCritical = sensor.status === "critical";
@@ -61,19 +61,19 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
           return (
             <div
               key={sensor.id}
-              className="p-2.5 rounded-lg border border-[#1E2330] bg-[#0E1017] font-mono text-xs space-y-2"
+              className="p-3 rounded-xl border border-[#E8E2D6] bg-[#FAF8F5] font-mono text-xs space-y-2 shadow-xs"
             >
               {/* Sensor Header */}
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="p-1 rounded bg-[#161A26] border border-[#242A3B] shrink-0">
+                  <div className="p-1.5 rounded-lg bg-[#EFEAE0] text-[#78350F] shrink-0">
                     {getSensorIcon(sensor.name)}
                   </div>
                   <div className="truncate">
-                    <span className="font-semibold text-slate-200 block truncate">
+                    <span className="font-semibold text-[#1C1917] block truncate">
                       {sensor.name}
                     </span>
-                    <span className="text-[10px] text-slate-500 tabular-nums">
+                    <span className="text-[10px] text-[#78716A] tabular-nums">
                       BAND: {sensor.nominalMin} – {sensor.nominalMax} {sensor.unit}
                     </span>
                   </div>
@@ -82,9 +82,9 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
                 {/* Right: Live Value & Delta Tag */}
                 <div className="text-right shrink-0 flex items-center gap-2">
                   <div>
-                    <span className="text-xs font-bold text-slate-100 tabular-nums">
+                    <span className="text-xs font-bold text-[#1C1917] tabular-nums">
                       {sensor.recordedValue}
-                      <span className="text-[10px] text-slate-400 ml-0.5">{sensor.unit}</span>
+                      <span className="text-[10px] text-[#78716A] ml-0.5">{sensor.unit}</span>
                     </span>
                   </div>
 
@@ -101,10 +101,10 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
 
               {/* Tolerance Visual Delta Bar */}
               <div className="space-y-1">
-                <div aria-hidden="true" className="relative h-2 w-full rounded-full bg-[#181C28] overflow-hidden">
+                <div aria-hidden="true" className="relative h-2 w-full rounded-full bg-[#E5DFD3] overflow-hidden">
                   {/* Calibrated Nominal Green Band Zone */}
                   <div
-                    className="absolute top-0 bottom-0 bg-emerald-500/25 border-x border-emerald-500/50"
+                    className="absolute top-0 bottom-0 bg-[#86EFAC] border-x border-[#4ADE80]"
                     style={{
                       left: `${nominalMinPct}%`,
                       width: `${nominalMaxPct - nominalMinPct}%`,
@@ -113,20 +113,20 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
 
                   {/* Recorded Value Needle Indicator */}
                   <div
-                    className={`absolute top-0 bottom-0 w-2 -ml-1 rounded-full shadow-md ${
+                    className={`absolute top-0 bottom-0 w-2 -ml-1 rounded-full shadow-xs ${
                       isCritical
-                        ? "bg-rose-500 shadow-rose-500/60"
+                        ? "bg-[#DC2626]"
                         : isWarning
-                        ? "bg-amber-400 shadow-amber-400/60"
-                        : "bg-cyan-400 shadow-cyan-400/60"
+                        ? "bg-[#D97706]"
+                        : "bg-[#16A34A]"
                     }`}
                     style={{ left: `${recordedPct}%` }}
                   />
                 </div>
 
-                <div className="flex justify-between text-[9px] text-slate-500 tabular-nums">
+                <div className="flex justify-between text-[9px] text-[#78716A] tabular-nums">
                   <span>LO TGT: {sensor.nominalMin}</span>
-                  <span className="text-slate-400 font-bold">NOM: {sensor.nominalTarget}</span>
+                  <span className="text-[#1C1917] font-bold">NOM: {sensor.nominalTarget}</span>
                   <span>HI TGT: {sensor.nominalMax}</span>
                 </div>
               </div>

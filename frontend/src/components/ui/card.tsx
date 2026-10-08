@@ -14,17 +14,17 @@ export function Card({
   ...props
 }: CardProps) {
   const accentBorder = {
-    none: "border-[#1F2430]",
-    cyan: "border-cyan-500/40",
-    emerald: "border-emerald-500/40",
-    rose: "border-rose-500/40",
-    amber: "border-amber-500/40",
+    none: "border-[#E5DFD3]",
+    cyan: "border-[#9A3412]/40",
+    emerald: "border-[#166534]/40",
+    rose: "border-[#9A3412]/50",
+    amber: "border-[#D97706]/40",
   }[accent];
 
   return (
     <div
       className={clsx(
-        "relative rounded-xl bg-[#12141C] border text-slate-100 shadow-xl overflow-hidden",
+        "relative rounded-2xl bg-[#FFFFFF] border text-[#1C1917] shadow-xs overflow-hidden",
         accentBorder,
         className
       )}
@@ -32,10 +32,10 @@ export function Card({
     >
       {technicalCorners && (
         <div aria-hidden="true">
-          <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-slate-600 pointer-events-none" />
-          <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-slate-600 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-slate-600 pointer-events-none" />
-          <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-slate-600 pointer-events-none" />
+          <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-[#A8A29E] pointer-events-none" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-[#A8A29E] pointer-events-none" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-[#A8A29E] pointer-events-none" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-[#A8A29E] pointer-events-none" />
         </div>
       )}
       {children}
@@ -51,7 +51,7 @@ export function CardHeader({
   return (
     <div
       className={clsx(
-        "px-4 py-3 border-b border-[#1F2430] bg-[#161922] flex items-center justify-between",
+        "px-4 py-3 border-b border-[#E6E0D3] bg-[#F7F4EC] flex items-center justify-between",
         className
       )}
       {...props}
@@ -69,7 +69,7 @@ export function CardTitle({
   return (
     <h3
       className={clsx(
-        "text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2 text-balance",
+        "text-xs font-semibold uppercase tracking-wider text-[#1C1917] font-mono flex items-center gap-2 text-balance",
         className
       )}
       {...props}

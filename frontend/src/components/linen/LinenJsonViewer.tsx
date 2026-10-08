@@ -3,24 +3,24 @@
 import React, { useState } from "react";
 import { Check, Copy, Download, Code2, ChevronDown, ChevronUp } from "lucide-react";
 
-interface JsonViewerProps {
+interface LinenJsonViewerProps {
   data: Record<string, unknown> | null;
   title?: string;
   maxHeight?: string;
 }
 
-export function JsonViewer({
+export function LinenJsonViewer({
   data,
-  title = "Backend Model JSON Response",
-  maxHeight = "500px",
-}: JsonViewerProps) {
+  title = "Backend Model JSON Payload",
+  maxHeight = "520px",
+}: LinenJsonViewerProps) {
   const [copied, setCopied] = useState(false);
   const [isExpanded, setIsExpanded] = useState(true);
 
   if (!data) {
     return (
-      <div className="rounded-xl border border-[#1E2330] bg-[#0C0E14] p-6 text-center text-xs font-mono text-slate-500">
-        No JSON response returned yet. Dispatch an inspection on the intake panel to view backend model output.
+      <div className="rounded-xl border border-[#E5DFD3] bg-[#FAF8F5] p-6 text-center text-xs font-mono text-[#78716A]">
+        No JSON payload returned yet. Run an inspection on the left intake station to evaluate components.
       </div>
     );
   }
@@ -44,7 +44,7 @@ export function JsonViewer({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `model-inspection-${Date.now()}.json`;
+    a.download = `aura-inspection-${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -58,27 +58,31 @@ export function JsonViewer({
   const latency = typeof data.latency_ms === "number" ? `${data.latency_ms} ms` : null;
 
   return (
-    <div className="rounded-xl border border-[#1E2330] bg-[#0A0C11] overflow-hidden shadow-2xl font-mono text-xs">
+    <div className="rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-xs font-mono text-xs">
       {/* Top Header Bar */}
-      <div className="px-4 py-2.5 bg-[#12151E] border-b border-[#1E2330] flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <Code2 aria-hidden="true" className="w-4 h-4 text-cyan-400" />
-          <span className="font-semibold text-slate-200 tracking-wider text-[11px] uppercase">
-            {title}
-          </span>
-          <span className="text-[10px] text-slate-500">
-            ({lineCount} lines • {byteSize} bytes)
-          </span>
+      <div className="px-4 py-3 bg-[#F7F4EC] border-b border-[#E6E0D3] flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="p-1 rounded bg-[#EAE4D7] text-[#78350F]">
+            <Code2 aria-hidden="true" className="w-3.5 h-3.5" />
+          </div>
+          <div>
+            <span className="font-semibold text-[#1C1917] tracking-wider text-[11px] uppercase block">
+              {title}
+            </span>
+            <span className="text-[10px] text-[#78716A]">
+              {lineCount} lines • {byteSize} bytes • raw server format
+            </span>
+          </div>
         </div>
 
-        {/* Quick Summary Chips */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Quick Summary Chips & Actions */}
+        <div className="flex items-center gap-2 flex-wrap">
           {prediction && (
             <span
-              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+              className={`px-2 py-0.5 rounded text-[10px] font-bold tracking-wider ${
                 prediction === "DEFECTIVE"
-                  ? "bg-rose-950/70 text-rose-300 border border-rose-800/40"
-                  : "bg-emerald-950/70 text-emerald-300 border border-emerald-800/40"
+                  ? "bg-[#FDF2E9] text-[#9A3412] border border-[#FCD6C2]"
+                  : "bg-[#EDF7EE] text-[#166534] border border-[#C6E6C8]"
               }`}
             >
               PREDICTION: {prediction}
@@ -86,28 +90,28 @@ export function JsonViewer({
           )}
 
           {confidence && (
-            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700/60 text-cyan-300 tabular-nums">
-              CONF: {confidence}
+            <span className="px-2 py-0.5 rounded text-[10px] bg-[#FAF8F5] border border-[#E2DBD0] text-[#78716A] tabular-nums font-medium">
+              CONF: <strong className="text-[#1C1917]">{confidence}</strong>
             </span>
           )}
 
           {latency && (
-            <span className="px-2 py-0.5 rounded text-[10px] bg-slate-900 border border-slate-700/60 text-slate-400 tabular-nums">
+            <span className="px-2 py-0.5 rounded text-[10px] bg-[#FAF8F5] border border-[#E2DBD0] text-[#78716A] tabular-nums">
               {latency}
             </span>
           )}
 
           {/* Action buttons */}
-          <div className="flex items-center gap-1 ml-1">
+          <div className="flex items-center gap-1 ml-1 border-l border-[#E2DBD0] pl-2">
             <button
               type="button"
               onClick={handleCopy}
-              aria-label="Copy JSON to clipboard"
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-[#1A1F2D] border border-transparent hover:border-[#2D3547] transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              aria-label="Copy JSON payload to clipboard"
+              className="p-1.5 rounded-md text-[#78716A] hover:text-[#1C1917] hover:bg-[#EFEAE0] transition-[background-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
               title="Copy JSON payload"
             >
               {copied ? (
-                <span className="flex items-center gap-1 text-emerald-400 text-[10px] px-1">
+                <span className="flex items-center gap-1 text-[#166534] text-[10px] font-semibold px-1">
                   <Check aria-hidden="true" className="w-3 h-3" />
                   Copied
                 </span>
@@ -120,7 +124,7 @@ export function JsonViewer({
               type="button"
               onClick={handleDownload}
               aria-label="Download JSON file"
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-[#1A1F2D] border border-transparent hover:border-[#2D3547] transition-[color,background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              className="p-1.5 rounded-md text-[#78716A] hover:text-[#1C1917] hover:bg-[#EFEAE0] transition-[background-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
               title="Download JSON file"
             >
               <Download aria-hidden="true" className="w-3.5 h-3.5" />
@@ -131,7 +135,7 @@ export function JsonViewer({
               onClick={() => setIsExpanded(!isExpanded)}
               aria-label={isExpanded ? "Collapse JSON viewer" : "Expand JSON viewer"}
               aria-expanded={isExpanded}
-              className="p-1 rounded text-slate-400 hover:text-slate-100 hover:bg-[#1A1F2D] transition-[color,background-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+              className="p-1.5 rounded-md text-[#78716A] hover:text-[#1C1917] hover:bg-[#EFEAE0] transition-[background-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
             >
               {isExpanded ? (
                 <ChevronUp aria-hidden="true" className="w-3.5 h-3.5" />
@@ -143,11 +147,11 @@ export function JsonViewer({
         </div>
       </div>
 
-      {/* Code Display Area */}
+      {/* Code Display Area on Warm Parchment */}
       {isExpanded && (
         <div
           style={{ maxHeight }}
-          className="overflow-y-auto p-4 bg-[#090B0E] text-slate-300 select-text leading-relaxed text-[11px]"
+          className="overflow-y-auto p-4 bg-[#FBF9F5] text-[#292524] select-text leading-relaxed text-[11px]"
         >
           <pre className="font-mono whitespace-pre-wrap break-all">
             <code>{jsonString}</code>

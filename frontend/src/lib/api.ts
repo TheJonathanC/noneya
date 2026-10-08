@@ -189,16 +189,16 @@ export function createSampleFile(
   const label = isDefect ? `defective_impeller_${index}.png` : `nominal_impeller_${index}.png`;
 
   const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
-    <rect width="600" height="600" fill="#0c0e14"/>
-    <circle cx="300" cy="300" r="220" fill="#20242e" stroke="#363f52" stroke-width="3"/>
-    <circle cx="300" cy="300" r="140" fill="#131720" stroke="#48536b" stroke-width="2"/>
-    <circle cx="300" cy="300" r="45" fill="#090b0f" stroke="#00f0ff" stroke-width="2"/>
+    <rect width="600" height="600" fill="#1C1917"/>
+    <circle cx="300" cy="300" r="220" fill="#292524" stroke="#57534E" stroke-width="3"/>
+    <circle cx="300" cy="300" r="140" fill="#1C1917" stroke="#78716A" stroke-width="2"/>
+    <circle cx="300" cy="300" r="45" fill="#141210" stroke="#C2410C" stroke-width="2"/>
     ${
       isDefect
-        ? `<ellipse cx="360" cy="240" rx="26" ry="14" fill="#f43f5e" opacity="0.85"/>
-           <line x1="340" y1="240" x2="380" y2="240" stroke="#ffffff" stroke-width="2"/>
-           <text x="300" y="550" fill="#f43f5e" font-family="monospace" font-size="16" text-anchor="middle">DEFECT LOCALIZED: POROSITY</text>`
-        : `<text x="300" y="550" fill="#10b981" font-family="monospace" font-size="16" text-anchor="middle">SPECIFICATION: NOMINAL</text>`
+        ? `<ellipse cx="360" cy="240" rx="26" ry="14" fill="#EA580C" opacity="0.9"/>
+           <line x1="340" y1="240" x2="380" y2="240" stroke="#FAF8F5" stroke-width="2"/>
+           <text x="300" y="550" fill="#EA580C" font-family="monospace" font-size="16" text-anchor="middle">DEFECT LOCALIZED: POROSITY</text>`
+        : `<text x="300" y="550" fill="#16A34A" font-family="monospace" font-size="16" text-anchor="middle">SPECIFICATION: NOMINAL</text>`
     }
   </svg>`;
 
