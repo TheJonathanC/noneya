@@ -538,6 +538,11 @@ export function normalizeInspectionResponse(
   let confidenceScore = 95.0;
   if (typeof data.confidence === "number") {
     confidenceScore = data.confidence > 1 ? data.confidence : data.confidence * 100;
+  } else if (typeof data.confidence_score === "number") {
+    confidenceScore = data.confidence_score > 1 ? data.confidence_score : data.confidence_score * 100;
+  } else if (data.probabilities && typeof (data.probabilities as Record<string, unknown>).defect === "number") {
+    const prob = (data.probabilities as Record<string, unknown>).defect as number;
+    confidenceScore = Math.round((isDefective ? prob : 1 - prob) * 1000) / 10;
   } else if (data.root_cause_analysis && typeof (data.root_cause_analysis as Record<string, unknown>).confidence_score === "string") {
     const parsed = parseFloat(String((data.root_cause_analysis as Record<string, unknown>).confidence_score));
     if (!isNaN(parsed)) confidenceScore = parsed;
@@ -548,8 +553,12 @@ export function normalizeInspectionResponse(
     ? "Localized surface variance detected exceeding factory acceptance threshold."
     : "All structural and geometric tolerance metrics within nominal specification.";
 
-  if (typeof data.root_cause_summary === "string") {
+  if (typeof data.gemini_incident_report === "string") {
+    rootCauseSummary = data.gemini_incident_report;
+  } else if (typeof data.root_cause_summary === "string") {
     rootCauseSummary = data.root_cause_summary;
+  } else if (data.root_cause && typeof (data.root_cause as Record<string, unknown>).cause === "string") {
+    rootCauseSummary = `Telemetry drift identified primary factor in: ${String((data.root_cause as Record<string, unknown>).cause)}`;
   } else if (data.root_cause_analysis && typeof (data.root_cause_analysis as Record<string, unknown>).probable_cause === "string") {
     rootCauseSummary = String((data.root_cause_analysis as Record<string, unknown>).probable_cause);
   } else if (typeof data.details === "string") {
@@ -563,24 +572,40 @@ export function normalizeInspectionResponse(
 
   if (typeof data.recommended_action === "string") {
     recommendedAction = data.recommended_action;
+  } else if (data.root_cause && typeof (data.root_cause as Record<string, unknown>).action === "string") {
+    recommendedAction = String((data.root_cause as Record<string, unknown>).action);
   }
 
-  // Anomaly coordinates
-  const anomalyCoordinate: AnomalyCoordinate = isDefective
-    ? {
-        xPercent: 54,
-        yPercent: 46,
-        radiusPercent: 15,
-        confidence: confidenceScore,
-        intensity: severity === "Critical" ? "Severe" : "High",
-      }
-    : {
-        xPercent: 50,
-        yPercent: 50,
-        radiusPercent: 0,
-        confidence: confidenceScore,
-        intensity: "None",
-      };
+  // Anomaly coordinates (checking spatial hotspots from PatchCore-lite backend)
+  let anomalyCoordinate: AnomalyCoordinate;
+  if (Array.isArray(data.hotspots) && data.hotspots.length > 0) {
+    const hs = data.hotspots[0] as Record<string, unknown>;
+    const x = typeof hs.x === "number" ? hs.x * 100 : 54;
+    const y = typeof hs.y === "number" ? hs.y * 100 : 46;
+    anomalyCoordinate = {
+      xPercent: Math.round(x),
+      yPercent: Math.round(y),
+      radiusPercent: 15,
+      confidence: confidenceScore,
+      intensity: severity === "Critical" ? "Severe" : "High",
+    };
+  } else {
+    anomalyCoordinate = isDefective
+      ? {
+          xPercent: 54,
+          yPercent: 46,
+          radiusPercent: 15,
+          confidence: confidenceScore,
+          intensity: severity === "Critical" ? "Severe" : "High",
+        }
+      : {
+          xPercent: 50,
+          yPercent: 50,
+          radiusPercent: 0,
+          confidence: confidenceScore,
+          intensity: "None",
+        };
+  }
 
   // Telemetry mapping
   const telemetry: SensorTelemetry[] = isDefective
