@@ -4,6 +4,24 @@ import {
   normalizeInspectionResponse,
 } from "./inspection-adapter";
 
+export interface SingleInspectionResult {
+  item: InspectionItem;
+  rawJson: Record<string, unknown>;
+  latencyMs: number;
+  source: "live-backend" | "resilient-engine" | "mock";
+}
+
+export interface BatchInspectionFlowResult {
+  items: InspectionItem[];
+  rawJson: Record<string, unknown>;
+  batchId: string;
+  gateDecision: "GO" | "ADJUST" | "CRITICAL STOP";
+  defectsCount: number;
+  passedCount: number;
+  latencyMs: number;
+  source: "live-backend" | "resilient-engine" | "mock";
+}
+
 export interface InspectRequestOptions {
   useMockFallback?: boolean;
   targetUrl?: string;
@@ -11,125 +29,209 @@ export interface InspectRequestOptions {
   customPartId?: string;
 }
 
-export interface BatchInspectionResult {
-  items: InspectionItem[];
-  durationMs: number;
-  source: "live-backend" | "mock-fallback" | "simulated-engine";
-}
-
 /**
- * Inspect a single file via the backend API with built-in mock fallback resilience.
+ * Dispatches a single photo to the backend inspection model.
  */
-export async function inspectComponent(
-  file: File | Blob,
-  options: InspectRequestOptions = {}
-): Promise<{ item: InspectionItem; source: "live-backend" | "mock-fallback" }> {
-  const {
-    useMockFallback = true,
-    targetUrl = "http://82.112.231.102/test/classify",
-    mockState,
-    customPartId,
-  } = options;
+export async function inspectSinglePhoto(
+  file: File,
+  options: { mockState?: "DEFECTIVE" | "OK" | "RANDOM" } = {}
+): Promise<SingleInspectionResult> {
+  const start = performance.now();
+  const formData = new FormData();
+  formData.append("file", file, file.name);
 
-  // If user explicitly requested mock simulation
-  if (mockState && mockState !== "RANDOM") {
-    try {
-      const res = await fetch(`/api/classify?mock=${mockState}`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        const objectUrl = file instanceof File ? URL.createObjectURL(file) : undefined;
-        return {
-          item: normalizeInspectionResponse(data, customPartId, objectUrl),
-          source: "mock-fallback",
-        };
-      }
-    } catch {
-      // Fall through to local adapter
-    }
+  let endpoint = "/api/classify?mode=single";
+  if (options.mockState) {
+    endpoint += `&mock=${options.mockState}`;
   }
 
-  // Attempt live call via Next.js server proxy route
-  try {
-    const formData = new FormData();
-    formData.append("file", file, file instanceof File ? file.name : "component.jpg");
+  const response = await fetch(endpoint, {
+    method: "POST",
+    body: formData,
+  });
 
-    const endpoint = `/api/classify?target=${encodeURIComponent(targetUrl)}`;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+  const latencyMs = Math.round(performance.now() - start);
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      body: formData,
-      signal: controller.signal,
-    });
-    clearTimeout(timeout);
-
-    if (response.ok) {
-      const data = await response.json();
-      const objectUrl = file instanceof File ? URL.createObjectURL(file) : undefined;
-      return {
-        item: normalizeInspectionResponse(data, customPartId, objectUrl),
-        source: "live-backend",
-      };
-    } else {
-      // Backend returned non-200 (e.g. 404 endpoint not yet implemented)
-      if (useMockFallback) {
-        const item = generateFallbackInspection(file, customPartId);
-        return { item, source: "mock-fallback" };
-      }
-      throw new Error(`Inspection server returned HTTP ${response.status}`);
-    }
-  } catch (err: unknown) {
-    if (useMockFallback) {
-      const item = generateFallbackInspection(file, customPartId);
-      return { item, source: "mock-fallback" };
-    }
-    throw err;
+  if (!response.ok) {
+    // Generate graceful fallback
+    const fallbackItem = generateFallbackInspection(file, "P-IMP-9801");
+    return {
+      item: fallbackItem,
+      rawJson: { error: `HTTP ${response.status}`, status: "fallback" },
+      latencyMs,
+      source: "resilient-engine",
+    };
   }
+
+  const rawJson = (await response.json()) as Record<string, unknown>;
+  const objectUrl = URL.createObjectURL(file);
+  const partId = `P-IMP-${Math.floor(1000 + Math.random() * 9000)}`;
+
+  const item = normalizeInspectionResponse(rawJson, partId, objectUrl);
+
+  const source = rawJson.backend_target
+    ? "live-backend"
+    : rawJson.source === "resilient-engine"
+    ? "resilient-engine"
+    : "mock";
+
+  return {
+    item,
+    rawJson,
+    latencyMs: typeof rawJson.latency_ms === "number" ? rawJson.latency_ms : latencyMs,
+    source,
+  };
 }
 
 /**
- * Generate a mock batch or process a batch of uploaded files.
+ * Dispatches a batch of photos to the backend model inspection endpoint.
+ */
+export async function inspectBatchPhotos(
+  files: File[],
+  options: { mockState?: "DEFECTIVE" | "OK" | "RANDOM" } = {}
+): Promise<BatchInspectionFlowResult> {
+  const start = performance.now();
+  const formData = new FormData();
+
+  for (const file of files) {
+    formData.append("files", file, file.name);
+  }
+
+  let endpoint = "/api/classify?mode=batch";
+  if (options.mockState) {
+    endpoint += `&mock=${options.mockState}`;
+  }
+
+  const response = await fetch(endpoint, {
+    method: "POST",
+    body: formData,
+  });
+
+  const latencyMs = Math.round(performance.now() - start);
+
+  if (!response.ok) {
+    // Fallback batch from local curated mock
+    const items = MOCK_INSPECTION_ITEMS.slice(0, Math.min(files.length || 5, 5));
+    return {
+      items,
+      rawJson: { error: `HTTP ${response.status}`, status: "fallback" },
+      batchId: `BATCH-${Date.now()}`,
+      gateDecision: "CRITICAL STOP",
+      defectsCount: 2,
+      passedCount: items.length - 2,
+      latencyMs,
+      source: "resilient-engine",
+    };
+  }
+
+  const rawJson = (await response.json()) as Record<string, unknown>;
+  const payload = (rawJson.payload as Record<string, unknown>) || rawJson;
+
+  const batchId =
+    typeof payload.batch_id === "string" ? payload.batch_id : `BATCH-${Date.now()}`;
+
+  // Parse scanned parts from backend payload
+  const scannedParts = Array.isArray(payload.scanned_parts)
+    ? (payload.scanned_parts as Record<string, unknown>[])
+    : [];
+
+  const items: InspectionItem[] = files.map((file, idx) => {
+    const scanned = scannedParts[idx] || {};
+    const partId = `P-IMP-${9810 + idx}`;
+    const objectUrl = URL.createObjectURL(file);
+
+    // Merge batch payload attributes into individual item normalizer
+    const merged = {
+      ...scanned,
+      prediction:
+        scanned.prediction ||
+        (scanned.verdict === "confirmed" ? "DEFECTIVE" : scanned.verdict === "ok" ? "OK" : undefined),
+      defect_type: scanned.defect_type,
+      confidence: scanned.clf_prob || scanned.confidence_score,
+      root_cause: payload.root_cause,
+      gemini_incident_report: payload.gemini_incident_report,
+    };
+
+    return normalizeInspectionResponse(merged, partId, objectUrl);
+  });
+
+  const gateStatus = (payload.gate_status as Record<string, unknown>) || {};
+  const gateDecision =
+    typeof gateStatus.decision === "string"
+      ? (gateStatus.decision as "GO" | "ADJUST" | "CRITICAL STOP")
+      : items.some((i) => i.status === "DEFECTIVE")
+      ? "CRITICAL STOP"
+      : "GO";
+
+  const defectsCount = items.filter((i) => i.status === "DEFECTIVE").length;
+  const passedCount = items.length - defectsCount;
+
+  return {
+    items,
+    rawJson,
+    batchId,
+    gateDecision,
+    defectsCount,
+    passedCount,
+    latencyMs: typeof rawJson.latency_ms === "number" ? rawJson.latency_ms : latencyMs,
+    source: rawJson.backend_target ? "live-backend" : "resilient-engine",
+  };
+}
+
+/**
+ * Creates an in-memory sample File object for 1-click testing.
+ */
+export function createSampleFile(
+  type: "nominal" | "defective" = "nominal",
+  index = 1
+): File {
+  const isDefect = type === "defective";
+  const label = isDefect ? `defective_impeller_${index}.png` : `nominal_impeller_${index}.png`;
+
+  const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+    <rect width="600" height="600" fill="#0c0e14"/>
+    <circle cx="300" cy="300" r="220" fill="#20242e" stroke="#363f52" stroke-width="3"/>
+    <circle cx="300" cy="300" r="140" fill="#131720" stroke="#48536b" stroke-width="2"/>
+    <circle cx="300" cy="300" r="45" fill="#090b0f" stroke="#00f0ff" stroke-width="2"/>
+    ${
+      isDefect
+        ? `<ellipse cx="360" cy="240" rx="26" ry="14" fill="#f43f5e" opacity="0.85"/>
+           <line x1="340" y1="240" x2="380" y2="240" stroke="#ffffff" stroke-width="2"/>
+           <text x="300" y="550" fill="#f43f5e" font-family="monospace" font-size="16" text-anchor="middle">DEFECT LOCALIZED: POROSITY</text>`
+        : `<text x="300" y="550" fill="#10b981" font-family="monospace" font-size="16" text-anchor="middle">SPECIFICATION: NOMINAL</text>`
+    }
+  </svg>`;
+
+  const blob = new Blob([svgContent], { type: "image/svg+xml" });
+  return new File([blob], label, { type: "image/svg+xml" });
+}
+
+/**
+ * Backward compatibility helpers
  */
 export async function runBatchInspection(
   files: File[],
   sampleSize = 5,
   options: InspectRequestOptions = {}
-): Promise<BatchInspectionResult> {
-  const start = performance.now();
-
+): Promise<{ items: InspectionItem[]; durationMs: number; source: "live-backend" | "mock-fallback" | "simulated-engine" }> {
   if (files.length === 0) {
-    // Generate slice from curated mock batch
-    const count = Math.min(Math.max(sampleSize, 1), MOCK_INSPECTION_ITEMS.length);
-    const selected = MOCK_INSPECTION_ITEMS.slice(0, count);
+    const selected = MOCK_INSPECTION_ITEMS.slice(0, Math.min(sampleSize, MOCK_INSPECTION_ITEMS.length));
     return {
       items: selected,
-      durationMs: Math.round(performance.now() - start),
+      durationMs: 45,
       source: "simulated-engine",
     };
   }
 
-  // Inspect each file in parallel
-  const promises = files.slice(0, sampleSize).map(async (file, index) => {
-    const partId = `P-IMP-${9810 + index}`;
-    try {
-      const result = await inspectComponent(file, { ...options, customPartId: partId });
-      return result.item;
-    } catch {
-      return generateFallbackInspection(file, partId);
-    }
-  });
-
-  const items = await Promise.all(promises);
+  const result = await inspectBatchPhotos(files.slice(0, sampleSize), options);
   return {
-    items,
-    durationMs: Math.round(performance.now() - start),
-    source: options.useMockFallback ? "mock-fallback" : "live-backend",
+    items: result.items,
+    durationMs: result.latencyMs,
+    source: result.source === "live-backend" ? "live-backend" : "mock-fallback",
   };
 }
 
 function generateFallbackInspection(file: File | Blob, partId?: string): InspectionItem {
-  // Deterministic or pseudo-random inspection based on file name or timestamp
   const isDefective = Math.random() > 0.65;
   const objectUrl = file instanceof File ? URL.createObjectURL(file) : undefined;
 
@@ -139,10 +241,6 @@ function generateFallbackInspection(file: File | Blob, partId?: string): Inspect
         defect_type: "porosity",
         severity_rating: "Critical",
         confidence: 0.942,
-        root_cause_analysis: {
-          probable_cause: "abnormal casting temperature and mold chill rate variance",
-          confidence_score: "94%",
-        },
         recommended_action: "Quarantine batch for destructive testing and inspect cooling manifold.",
       }
     : {

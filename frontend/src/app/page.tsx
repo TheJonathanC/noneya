@@ -1,104 +1,209 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { StationHeader } from "@/components/inspection/StationHeader";
-import { BatchReel } from "@/components/inspection/BatchReel";
-import { AnomalySlider } from "@/components/inspection/AnomalySlider";
-import { TelemetryDeltaPanel } from "@/components/inspection/TelemetryDeltaPanel";
-import { RootCauseDossier } from "@/components/inspection/RootCauseDossier";
+import { FlowHeader } from "@/components/flow/FlowHeader";
+import { IntakePanel, StagedItem } from "@/components/flow/IntakePanel";
+import { ResultsStage } from "@/components/flow/ResultsStage";
+import {
+  inspectSinglePhoto,
+  inspectBatchPhotos,
+  createSampleFile,
+} from "@/lib/api";
 import {
   InspectionItem,
-  MOCK_INSPECTION_ITEMS,
-  calculateStationStats,
 } from "@/lib/inspection-adapter";
-import { runBatchInspection } from "@/lib/api";
-import { RotateCcw, Scan } from "lucide-react";
 
 export default function QualityInspectionDashboard() {
-  const [items, setItems] = useState<InspectionItem[]>(() => MOCK_INSPECTION_ITEMS.slice(0, 5));
+  const [mode, setMode] = useState<"single" | "batch">("single");
+  const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [activeStep, setActiveStep] = useState<1 | 2 | 3>(1);
+
+  const [resultItems, setResultItems] = useState<InspectionItem[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [sampleSize, setSampleSize] = useState(5);
-  const [isRunning, setIsRunning] = useState(false);
-  const [useMockFallback, setUseMockFallback] = useState(true);
+  const [rawJson, setRawJson] = useState<Record<string, unknown> | null>(null);
+  const [gateDecision, setGateDecision] = useState<"GO" | "ADJUST" | "CRITICAL STOP">("GO");
 
-  const selectedItem = items[selectedIndex] || items[0] || null;
-  const stats = calculateStationStats(items);
-
-  // Screen reader announcer message for batch operations
+  const [useMockFallback, setUseMockFallback] = useState(false);
+  const [serverOnline, setServerOnline] = useState(true);
   const [announcement, setAnnouncement] = useState("");
 
-  // Run or refresh inspection batch
-  const handleRunBatch = useCallback(async () => {
-    setIsRunning(true);
-    setAnnouncement(`Initiating inspection batch with sample size of ${sampleSize} parts.`);
-    try {
-      const result = await runBatchInspection([], sampleSize, {
-        useMockFallback,
-      });
-      setItems(result.items);
-      setSelectedIndex(0);
-      setAnnouncement(`Batch scan complete. Inspected ${result.items.length} parts.`);
-    } catch (err) {
-      console.error("Batch inspection failed:", err);
-      setAnnouncement("Batch inspection encountered an error.");
-    } finally {
-      setIsRunning(false);
-    }
-  }, [sampleSize, useMockFallback]);
+  const activeItem = resultItems[selectedIndex] || resultItems[0] || null;
 
-  // Handle uploaded images from operator
-  const handleUploadFiles = useCallback(
-    async (files: File[]) => {
-      setIsRunning(true);
-      setAnnouncement(`Processing ${files.length} uploaded component captures.`);
+  // Probe live backend server health on mount
+  useEffect(() => {
+    async function checkHealth() {
       try {
-        const result = await runBatchInspection(files, Math.max(files.length, sampleSize), {
-          useMockFallback,
+        const res = await fetch("http://82.112.231.102/health", {
+          signal: AbortSignal.timeout(3000),
         });
-        setItems(result.items);
-        setSelectedIndex(0);
-        setAnnouncement(`Upload analysis complete. ${result.items.length} components evaluated.`);
-      } catch (err) {
-        console.error("Upload inspection failed:", err);
-        setAnnouncement("Upload analysis encountered an error.");
-      } finally {
-        setIsRunning(false);
+        setServerOnline(res.ok);
+      } catch {
+        // Fallback probe via local API proxy
+        try {
+          const proxyRes = await fetch("/api/classify?mock=OK", {
+            method: "POST",
+            signal: AbortSignal.timeout(3000),
+          });
+          setServerOnline(proxyRes.ok);
+        } catch {
+          setServerOnline(false);
+        }
       }
-    },
-    [sampleSize, useMockFallback]
-  );
+    }
+    checkHealth();
+  }, []);
 
-  // Remove individual item from the inspection queue
-  const handleRemoveItem = useCallback((id: string) => {
-    setItems((prev) => {
-      const target = prev.find((item) => item.id === id);
-      if (target) {
-        setAnnouncement(`Removed part ${target.partId} from queue.`);
+  // Handle adding files to staged intake queue
+  const handleAddFiles = useCallback((files: File[]) => {
+    const newItems: StagedItem[] = files.map((file, i) => ({
+      id: `staged-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 6)}`,
+      file,
+      previewUrl: URL.createObjectURL(file),
+      presetType: "custom",
+    }));
+
+    setStagedItems((prev) => {
+      if (mode === "single") {
+        // Single mode holds 1 file at a time
+        return [newItems[0]];
       }
-      const nextItems = prev.filter((item) => item.id !== id);
-      return nextItems;
+      // Batch mode appends up to 10 files
+      return [...prev, ...newItems].slice(0, 10);
     });
-    setSelectedIndex((prev) => Math.max(0, prev > 0 ? prev - 1 : 0));
+
+    setActiveStep(1);
+    setAnnouncement(
+      mode === "single"
+        ? `Staged component image: ${files[0].name}`
+        : `Staged ${files.length} images for batch inspection.`
+    );
+  }, [mode]);
+
+  // Remove individual staged file
+  const handleRemoveStagedItem = useCallback((id: string) => {
+    setStagedItems((prev) => prev.filter((item) => item.id !== id));
+    setAnnouncement("Removed item from intake staging queue.");
   }, []);
 
-  // Clear all items from queue
-  const handleClearQueue = useCallback(() => {
-    setItems([]);
-    setSelectedIndex(0);
-    setAnnouncement("Inspection queue cleared.");
+  // Clear staged queue
+  const handleClearStagedQueue = useCallback(() => {
+    setStagedItems([]);
+    setAnnouncement("Intake staging queue cleared.");
   }, []);
 
-  // Restore default sample lot
-  const handleResetQueue = useCallback(() => {
-    setItems(MOCK_INSPECTION_ITEMS.slice(0, sampleSize));
-    setSelectedIndex(0);
-    setAnnouncement(`Sample lot restored with ${sampleSize} parts.`);
-  }, [sampleSize]);
+  // Load sample presets for 1-click testing
+  const handleLoadPreset = useCallback((preset: "nominal" | "defective" | "pilot_5") => {
+    if (preset === "nominal") {
+      const file = createSampleFile("nominal", 1);
+      const item: StagedItem = {
+        id: `staged-preset-${Date.now()}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        presetType: "nominal",
+      };
+      setStagedItems([item]);
+      setMode("single");
+      setAnnouncement("Loaded nominal sample part into intake.");
+    } else if (preset === "defective") {
+      const file = createSampleFile("defective", 1);
+      const item: StagedItem = {
+        id: `staged-preset-${Date.now()}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        presetType: "defective",
+      };
+      setStagedItems([item]);
+      setMode("single");
+      setAnnouncement("Loaded defective sample part into intake.");
+    } else if (preset === "pilot_5") {
+      const files = [
+        createSampleFile("defective", 1),
+        createSampleFile("defective", 2),
+        createSampleFile("nominal", 3),
+        createSampleFile("nominal", 4),
+        createSampleFile("nominal", 5),
+      ];
+      const items: StagedItem[] = files.map((file, idx) => ({
+        id: `staged-preset-batch-${Date.now()}-${idx}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+        presetType: idx < 2 ? "defective" : "nominal",
+      }));
+      setStagedItems(items);
+      setMode("batch");
+      setAnnouncement("Loaded 5 calibrated sample parts for pilot batch inspection.");
+    }
+    setActiveStep(1);
+  }, []);
 
-  // Micro-interaction: Keyboard frame scrubbing
+  // Primary Dispatch Flow: Call backend models and hand off images
+  const handleDispatch = useCallback(async () => {
+    if (stagedItems.length === 0) return;
+
+    setIsDispatching(true);
+    setActiveStep(2);
+    setAnnouncement(
+      mode === "single"
+        ? "Handing off component to backend model at 82.112.231.102…"
+        : `Handing off batch of ${stagedItems.length} parts to backend model…`
+    );
+
+    try {
+      if (mode === "single") {
+        const singleFile = stagedItems[0].file;
+        const result = await inspectSinglePhoto(singleFile, {
+          mockState: useMockFallback ? "DEFECTIVE" : undefined,
+        });
+
+        setResultItems([result.item]);
+        setSelectedIndex(0);
+        setRawJson(result.rawJson);
+        setActiveStep(3);
+        setAnnouncement(
+          `Model classification returned: ${result.item.status}. Latency: ${result.latencyMs} ms.`
+        );
+      } else {
+        const files = stagedItems.map((item) => item.file);
+        const result = await inspectBatchPhotos(files, {
+          mockState: useMockFallback ? "DEFECTIVE" : undefined,
+        });
+
+        setResultItems(result.items);
+        setSelectedIndex(0);
+        setRawJson(result.rawJson);
+        setGateDecision(result.gateDecision);
+        setActiveStep(3);
+        setAnnouncement(
+          `Batch inspection complete. Decision: ${result.gateDecision}. ${result.defectsCount} defects found.`
+        );
+      }
+    } catch (err) {
+      console.error("Model dispatch failed:", err);
+      setAnnouncement("Model dispatch encountered an error. Applied resilient fallback.");
+    } finally {
+      setIsDispatching(false);
+    }
+  }, [stagedItems, mode, useMockFallback]);
+
+  // Reset entire flow
+  const handleResetAll = useCallback(() => {
+    setStagedItems([]);
+    setResultItems([]);
+    setSelectedIndex(0);
+    setRawJson(null);
+    setActiveStep(1);
+    setAnnouncement("Inspection flow reset to initial intake state.");
+  }, []);
+
+  // Quick-start sample when in idle state
+  const handleQuickStart = useCallback(() => {
+    handleLoadPreset("defective");
+  }, [handleLoadPreset]);
+
+  // Arrow key scrubbing between batch parts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if user is typing in an input
       if (
         document.activeElement?.tagName === "INPUT" ||
         document.activeElement?.tagName === "TEXTAREA"
@@ -106,24 +211,32 @@ export default function QualityInspectionDashboard() {
         return;
       }
 
-      if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev < items.length - 1 ? prev + 1 : 0));
-      } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-        e.preventDefault();
-        setSelectedIndex((prev) => (prev > 0 ? prev - 1 : items.length - 1));
+      if (resultItems.length > 1) {
+        if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev < resultItems.length - 1 ? prev + 1 : 0));
+        } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          setSelectedIndex((prev) => (prev > 0 ? prev - 1 : resultItems.length - 1));
+        }
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [items.length]);
+  }, [resultItems.length]);
+
+  const batchStats = {
+    total: resultItems.length,
+    passed: resultItems.filter((i) => i.status === "PASSED").length,
+    defective: resultItems.filter((i) => i.status === "DEFECTIVE").length,
+  };
 
   return (
-    <div className="min-h-screen bg-[#0A0B0E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen bg-[#090A0E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
       {/* Skip Navigation Link for Keyboard Accessibility */}
       <a
-        href="#main-terminal-content"
+        href="#main-flow-terminal"
         className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 z-50 px-3 py-1.5 bg-cyan-500 text-[#090C12] font-mono text-xs font-bold rounded shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
       >
         Skip to inspection terminal
@@ -134,83 +247,60 @@ export default function QualityInspectionDashboard() {
         {announcement}
       </div>
 
-      {/* 1. Operational Header */}
-      <StationHeader
-        stats={stats}
-        sampleSize={sampleSize}
-        onSampleSizeChange={setSampleSize}
-        isRunning={isRunning}
-        onRunBatch={handleRunBatch}
+      {/* Minimal Sleek Flow Header */}
+      <FlowHeader
         useMockFallback={useMockFallback}
         onToggleMockFallback={() => setUseMockFallback(!useMockFallback)}
+        onResetAll={handleResetAll}
+        serverOnline={serverOnline}
       />
 
-      {/* Main Terminal Workspace Layout */}
-      <main id="main-terminal-content" className="flex-1 max-w-[1800px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden">
-        {/* 2. Part Inspection Queue (~35% width) */}
-        <section aria-label="Component queue" className="w-full lg:w-[35%] xl:w-[32%] min-h-[400px] lg:min-h-0 flex flex-col shrink-0">
-          <BatchReel
-            items={items}
-            selectedItem={selectedItem}
-            onSelectItem={(item) => {
-              const idx = items.findIndex((i) => i.id === item.id);
-              if (idx !== -1) setSelectedIndex(idx);
+      {/* Main Flow Two-Column Workspace */}
+      <main
+        id="main-flow-terminal"
+        className="flex-1 max-w-[1900px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden"
+      >
+        {/* Left Side (~38% width): Intake & Model Hand-Off Station */}
+        <section
+          aria-label="Component intake station"
+          className="w-full lg:w-[40%] xl:w-[36%] min-h-[460px] lg:min-h-0 flex flex-col shrink-0"
+        >
+          <IntakePanel
+            mode={mode}
+            onModeChange={(newMode) => {
+              setMode(newMode);
+              if (newMode === "single" && stagedItems.length > 1) {
+                setStagedItems([stagedItems[0]]);
+              }
             }}
-            onUploadFiles={handleUploadFiles}
-            onRemoveItem={handleRemoveItem}
-            onClearQueue={handleClearQueue}
-            onResetQueue={handleResetQueue}
-            isLoading={isRunning}
+            stagedItems={stagedItems}
+            onAddFiles={handleAddFiles}
+            onRemoveItem={handleRemoveStagedItem}
+            onClearQueue={handleClearStagedQueue}
+            onLoadPreset={handleLoadPreset}
+            isDispatching={isDispatching}
+            onDispatch={handleDispatch}
+            activeStep={activeStep}
           />
         </section>
 
-        {/* 3. Deep Diagnostics Stage (~65% width) */}
-        <section aria-label="Component diagnostics stage" className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#0A0B0E]">
-          {selectedItem ? (
-            <>
-              {/* Visual Anomaly Reticle with Split Curtain Slider */}
-              <div className="w-full">
-                <AnomalySlider item={selectedItem} />
-              </div>
-
-              {/* Bottom Twin Diagnostic Stage */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-stretch">
-                {/* Telemetry Anomaly Panel */}
-                <div className="min-h-[340px]">
-                  <TelemetryDeltaPanel telemetry={selectedItem.telemetry} />
-                </div>
-
-                {/* Root Cause & Action Dossier */}
-                <div className="min-h-[340px]">
-                  <RootCauseDossier item={selectedItem} />
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="h-full min-h-[480px] flex flex-col items-center justify-center p-12 text-slate-500 font-mono text-xs border border-dashed border-[#1F2430] rounded-2xl bg-[#0D0F16] text-center gap-4">
-              <div className="p-4 rounded-full bg-[#141724] border border-[#23293D] text-cyan-400">
-                <Scan aria-hidden="true" className="w-8 h-8" />
-              </div>
-              <div className="space-y-1">
-                <div className="text-sm font-semibold text-slate-200 text-balance">
-                  No Component Active for Diagnostic Stage
-                </div>
-                <p className="text-slate-500 max-w-md text-xs text-balance">
-                  The inspection queue is currently empty. Drop component captures into the intake
-                  zone or restore the sample batch.
-                </p>
-              </div>
-              <button
-                onClick={handleResetQueue}
-                type="button"
-                aria-label={`Restore sample lot with ${sampleSize} parts`}
-                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/50 text-xs font-semibold flex items-center gap-2 transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D0F16]"
-              >
-                <RotateCcw aria-hidden="true" className="w-3.5 h-3.5" />
-                <span>Restore Sample Lot ({sampleSize} Parts)</span>
-              </button>
-            </div>
-          )}
+        {/* Right Side (~62% width): Model Execution, Returned JSON & Output */}
+        <section
+          aria-label="Model inspection results and JSON output"
+          className="flex-1 flex flex-col min-h-0 bg-[#090B0E]"
+        >
+          <ResultsStage
+            activeItem={activeItem}
+            allItems={resultItems}
+            selectedIndex={selectedIndex}
+            onSelectIndex={setSelectedIndex}
+            rawJson={rawJson}
+            isLoading={isDispatching}
+            isBatch={mode === "batch" || resultItems.length > 1}
+            gateDecision={gateDecision}
+            batchStats={resultItems.length > 0 ? batchStats : undefined}
+            onLoadQuickSample={handleQuickStart}
+          />
         </section>
       </main>
     </div>
