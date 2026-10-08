@@ -28,6 +28,7 @@ from database import InspectionTelemetry, init_db
 from telemetry_bridge import generate_batch_telemetry, diagnose_telemetry
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, status, Request
+from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -294,6 +295,38 @@ app.add_middleware(
 )
 
 
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    openapi_schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    # Swagger UI requires format: "binary" instead of contentMediaType: "application/octet-stream"
+    # to render the native "Choose File" picker properly.
+    def fix_binary_fields(obj):
+        if isinstance(obj, dict):
+            if obj.get("contentMediaType") == "application/octet-stream":
+                obj.pop("contentMediaType", None)
+                obj["format"] = "binary"
+            for v in obj.values():
+                fix_binary_fields(v)
+        elif isinstance(obj, list):
+            for item in obj:
+                fix_binary_fields(item)
+
+    fix_binary_fields(openapi_schema)
+    app.openapi_schema = openapi_schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
+
+
 # ---------------------------------------------------------
 # Helper Functions
 # ---------------------------------------------------------
@@ -527,9 +560,22 @@ async def db_health():
         except Exception:
             count = 0
     return {
+        "has_beanie": database.HAS_BEANIE,
+        "beanie_import_error": database.BEANIE_IMPORT_ERROR,
         "connected": database.is_db_connected,
         "database": os.getenv("MONGO_DB_NAME", "qastra"),
         "telemetry_records_count": count,
+        "connection_error": database.db_error,
+    }
+
+
+@app.post("/api/db/reconnect")
+async def db_reconnect(mongo_uri: Optional[str] = None):
+    """Attempts to reconnect to MongoDB Atlas live without container restart."""
+    success = await database.init_db(mongo_uri=mongo_uri)
+    return {
+        "connected": success,
+        "error": database.db_error,
     }
 
 
@@ -686,9 +732,9 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
 
 @app.post("/api/inspect")
 async def inspect_batch(
-    request: Request,
-    files: Optional[List[UploadFile]] = File(None),
-    batch_id: Optional[str] = None
+    file: Optional[UploadFile] = File(None, description="Select component image file (Choose File button for Swagger UI)"),
+    files: Optional[List[UploadFile]] = File(None, description="Select multiple component image files (for batch uploads)"),
+    batch_id: str = "BATCH-2026-X89"
 ):
     """
     Main integrated inspection pipeline connecting:
@@ -700,30 +746,16 @@ async def inspect_batch(
     """
     try:
         effective_batch_id = batch_id or "BATCH-2026-X89"
-        file_items: List[Any] = []
+        file_items: List[UploadFile] = []
+        if file is not None and getattr(file, "filename", None):
+            file_items.append(file)
         if files:
-            file_items.extend([f for f in files if f is not None])
+            for f in files:
+                if f is not None and getattr(f, "filename", None):
+                    file_items.append(f)
 
         if not file_items:
-            try:
-                form = await request.form()
-                form_batch = form.get("batch_id")
-                if form_batch:
-                    effective_batch_id = str(form_batch)
-                for key in ["files", "file"]:
-                    if hasattr(form, "getlist"):
-                        items = form.getlist(key)
-                    else:
-                        val = form.get(key)
-                        items = [val] if val else []
-                    for item in items:
-                        if item and hasattr(item, "read"):
-                            file_items.append(item)
-            except Exception as form_err:
-                logger.warning(f"Could not parse form in inspect_batch: {form_err}")
-
-        if not file_items:
-            raise HTTPException(status_code=400, detail="No files provided in inspection request.")
+            raise HTTPException(status_code=400, detail="No files provided. Please upload an image file using 'file' or 'files'.")
 
         batch_results = []
         m1 = model1 or init_model1() or load_classifier()
@@ -806,7 +838,7 @@ async def inspect_batch(
             if database.is_db_connected:
                 try:
                     db_doc = InspectionTelemetry(
-                        batch_id=batch_id,
+                        batch_id=effective_batch_id,
                         machine_id="CAST-CELL-04",
                         timestamp=datetime.now(timezone.utc),
                         classified_defect=defect_type,
@@ -1703,12 +1735,32 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
     defect_conf = float(highest_score * 100) if is_forced else round(float(p_defect * 100), 1)
     spots = extract_hotspots_from_heatmap(heatmap_2d, is_defect=True)
 
+    defect_type = predicted_defects[0] if predicted_defects else "porosity"
+    simulated_sensors = generate_batch_telemetry(defect_type)
+    diagnostic = diagnose_telemetry(simulated_sensors)
+
+    if database.is_db_connected:
+        try:
+            db_doc = InspectionTelemetry(
+                batch_id="TEST-INTEGRATED",
+                machine_id="CAST-CELL-04",
+                timestamp=datetime.now(timezone.utc),
+                classified_defect=defect_type,
+                sensor_readings=simulated_sensors,
+                root_cause=diagnostic,
+            )
+            await db_doc.insert()
+        except Exception as exc:
+            logger.warning(f"Failed to persist inspection telemetry to MongoDB: {exc}")
+
     return {
         "status": "Defective",
         "defect_type": defect_type,
         "predicted_defects": predicted_defects,
         "confidence_scores": confidence_scores,
         "requires_human_review": requires_human_review,
+        "telemetry": simulated_sensors,
+        "root_cause_analysis": diagnostic,
         "vision_results": {
             "has_defect": True,
             "defect_type": predicted_defects[0] if predicted_defects else "Defect",

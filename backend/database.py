@@ -5,18 +5,23 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+BEANIE_IMPORT_ERROR = None
 try:
     from beanie import Document, init_beanie
     from motor.motor_asyncio import AsyncIOMotorClient
+    # Satisfy Beanie's PyMongo append_metadata call without triggering MotorDatabase fallback
+    AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None  # type: ignore
     HAS_BEANIE = True
-except ImportError:
+except Exception as e:
     Document = object  # type: ignore
     HAS_BEANIE = False
+    BEANIE_IMPORT_ERROR = str(e)
 
 logger = logging.getLogger("quality_inspection_api")
 
 db_client = None
 is_db_connected: bool = False
+db_error: Optional[str] = None
 
 
 if HAS_BEANIE:
@@ -51,10 +56,11 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
     Initializes Beanie connection with MongoDB.
     Reads MONGO_URI from argument or environment, falling back to default cluster.
     """
-    global db_client, is_db_connected
+    global db_client, is_db_connected, db_error
 
     if not HAS_BEANIE:
-        logger.warning("Beanie/Motor libraries not installed. MongoDB persistence disabled.")
+        db_error = f"Beanie/Motor not imported: {BEANIE_IMPORT_ERROR}"
+        logger.warning(db_error)
         is_db_connected = False
         return False
 
@@ -70,9 +76,11 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
         db_client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=8000)
         await init_beanie(database=db_client[database_name], document_models=[InspectionTelemetry])
         is_db_connected = True
+        db_error = None
         logger.info(f"Connected to MongoDB database '{database_name}' successfully via Beanie.")
         return True
     except Exception as exc:
+        db_error = str(exc)
         logger.warning(f"Could not connect to MongoDB ({exc}). Running with DB persistence disabled.")
         is_db_connected = False
         return False
