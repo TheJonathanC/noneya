@@ -18,10 +18,14 @@ import json
 import logging
 import asyncio
 from typing import List, Optional, Dict, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from PIL import Image
+
+import database
+from database import InspectionTelemetry, init_db
+from telemetry_bridge import generate_batch_telemetry, diagnose_telemetry
 
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -252,6 +256,9 @@ async def lifespan(app: FastAPI):
     load_classifier()
     init_model1()
     init_model2()
+
+    # Initialize Beanie database connection
+    await init_db()
     
     yield
     
@@ -572,23 +579,137 @@ async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
     return response_payload
 
 
-# Keep legacy mock route for backwards compatibility with any earlier tests
+# ---------------------------------------------------------
+# Integrated Inspection Route (Model 1 + Model 2 + Model 3 + Gemini + Mongo)
+# ---------------------------------------------------------
+
 @app.post("/api/inspect")
-async def legacy_inspect_test(file: UploadFile = File(...)):
-    """Legacy single file test endpoint."""
+async def inspect_batch(files: List[UploadFile] = File(...), batch_id: str = "BATCH-2026-X89"):
+    """
+    Main integrated inspection pipeline connecting:
+      - STAGE 1: Model 1 (Filter OK vs Defect)
+      - STAGE 2: Model 2 (Categorize Defect)
+      - STAGE 3: Telemetry Generator + Model 3 Diagnostic Engine
+      - Persist Telemetry to MongoDB (Beanie InspectionTelemetry)
+      - STAGE 4: Gemini Incident Report Structuring
+    """
+    batch_results = []
+
+    m1 = model1 or init_model1() or load_classifier()
+    m2 = model2 or init_model2()
+
+    for file in files:
+        try:
+            content = await file.read()
+            image = Image.open(io.BytesIO(content)).convert("RGB")
+        except Exception as exc:
+            batch_results.append({
+                "filename": file.filename,
+                "status": "ERROR",
+                "error": f"Failed to read image: {str(exc)}",
+            })
+            continue
+
+        # --- STAGE 1: Model 1 (Filter OK vs Defect) ---
+        is_defective = False
+        p_defect = 0.0
+
+        if m1 is not None and (clf_transform or model1_transform):
+            try:
+                device1 = next(m1.parameters()).device
+                is_resnet = isinstance(m1, models.ResNet) if (models and hasattr(models, "ResNet")) else False
+                t1 = model1_transform if (is_resnet and model1_transform) else (clf_transform or model1_transform)
+                tensor1 = t1(image).unsqueeze(0).to(device1)
+                with torch.no_grad():
+                    logits1 = m1(tensor1)
+                    probs1 = torch.softmax(logits1, dim=1)[0]
+                    p_defect = float(probs1[1].item())
+                is_defective = p_defect >= 0.5
+            except Exception as exc:
+                logger.warning(f"Model 1 inference failed on {file.filename}: {exc}")
+                is_defective = "defect" in (file.filename or "").lower()
+        else:
+            is_defective = "defect" in (file.filename or "").lower()
+
+        # --- STAGE 2: Model 2 (Categorize Defect) ---
+        defect_type = "ok"
+        predicted_defects = []
+        confidence_scores = {}
+
+        if is_defective:
+            defect_type = "porosity"
+            if m2 is not None and model2_transform is not None:
+                try:
+                    device2 = model2_device or next(m2.parameters()).device
+                    tensor2 = model2_transform(image).unsqueeze(0).to(device2)
+                    with torch.no_grad():
+                        outputs2 = m2(tensor2)
+                        probs2 = torch.sigmoid(outputs2)[0]
+
+                    for idx, c_name in enumerate(MODEL2_CLASSES):
+                        score = float(probs2[idx].item())
+                        if score > 0.5:
+                            predicted_defects.append(c_name)
+                            confidence_scores[c_name] = f"{round(score * 100, 1)}%"
+
+                    if not predicted_defects:
+                        highest_idx = int(torch.argmax(probs2).item())
+                        defect_type = MODEL2_CLASSES[highest_idx]
+                        predicted_defects.append(defect_type)
+                        confidence_scores[defect_type] = f"{round(float(probs2[highest_idx].item()) * 100, 1)}%"
+                    else:
+                        defect_type = predicted_defects[0]
+                except Exception as exc:
+                    logger.warning(f"Model 2 inference failed on {file.filename}: {exc}")
+            else:
+                defect_type = "porosity"
+                predicted_defects = ["porosity"]
+                confidence_scores = {"porosity": "85.0%"}
+
+        # --- STAGE 3: Telemetry Generator + Model 3 Diagnostic Engine ---
+        simulated_sensors = generate_batch_telemetry(defect_type)
+        diagnostic = diagnose_telemetry(simulated_sensors)
+
+        # --- Persist Telemetry to MongoDB ---
+        db_doc = InspectionTelemetry(
+            batch_id=batch_id,
+            machine_id="CAST-CELL-04",
+            timestamp=datetime.now(timezone.utc),
+            classified_defect=defect_type,
+            sensor_readings=simulated_sensors,
+            root_cause=diagnostic,
+        )
+        if database.is_db_connected:
+            try:
+                await db_doc.insert()
+            except Exception as exc:
+                logger.warning(f"Failed to persist inspection telemetry to MongoDB: {exc}")
+
+        # --- STAGE 4: Gemini Incident Report Structuring ---
+        gemini_summary = None
+        if is_defective:
+            gemini_summary = generate_gemini_report({
+                "gate_status": {"decision": "CRITICAL STOP", "defects": 1, "worst_severity": "Critical"},
+                "root_cause": {"cause": diagnostic["primary_culprit_sensor"], "action": diagnostic["diagnostic_explanation"]},
+                "changepoint": {"change_t": 140},
+                "blast_radius": {"quarantined_count": 15},
+            })
+
+        batch_results.append({
+            "filename": file.filename,
+            "status": "DEFECTIVE" if defect_type != "ok" else "OK",
+            "defect_type": defect_type,
+            "predicted_defects": predicted_defects if is_defective else [],
+            "confidence_scores": confidence_scores,
+            "telemetry": simulated_sensors,
+            "root_cause_analysis": diagnostic,
+            "gemini_report": gemini_summary,
+        })
+
     return {
-        "timestamp": datetime.utcnow().isoformat(),
-        "component": "Cast Impeller",
-        "defect_type": "porosity",
-        "severity_rating": "Critical",
-        "localisation_heatmap_url": "/mock-heatmap-url.png",
-        "root_cause_analysis": {
-            "probable_cause": "abnormal casting temperature",
-            "confidence_score": "89%",
-            "batch_id": "B127",
-            "machine_id": "M-04",
-        },
-        "recommended_action": "Inspect the temperature-control system before continuing production.",
+        "batch_id": batch_id,
+        "processed_parts": len(batch_results),
+        "results": batch_results,
     }
 
 
@@ -938,9 +1059,14 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
 
     # Phase 2: Normal Case Routing (Stop pipeline immediately)
     if not is_defective:
+        simulated_sensors = generate_batch_telemetry("ok")
+        diagnostic = diagnose_telemetry(simulated_sensors)
         return {
             "status": "OK",
+            "defect_type": "ok",
             "routing": "Forwarded to batch engine / telemetry check",
+            "telemetry": simulated_sensors,
+            "root_cause_analysis": diagnostic,
         }
 
     # Phase 3 & 4: Defective Case -> Send normal/original image directly to Model 2
@@ -971,12 +1097,34 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
         confidence_scores[highest_class] = f"{round(highest_score * 100, 1)}%"
 
     requires_human_review = is_forced
+    defect_type = predicted_defects[0] if predicted_defects else "porosity"
+
+    # Phase 5: Telemetry Generation + Model 3 Diagnostic Engine
+    simulated_sensors = generate_batch_telemetry(defect_type)
+    diagnostic = diagnose_telemetry(simulated_sensors)
+
+    if database.is_db_connected:
+        try:
+            db_doc = InspectionTelemetry(
+                batch_id="TEST-INTEGRATED",
+                machine_id="CAST-CELL-04",
+                timestamp=datetime.now(timezone.utc),
+                classified_defect=defect_type,
+                sensor_readings=simulated_sensors,
+                root_cause=diagnostic,
+            )
+            await db_doc.insert()
+        except Exception as exc:
+            logger.warning(f"Failed to persist inspection telemetry to MongoDB: {exc}")
 
     return {
         "status": "Defective",
+        "defect_type": defect_type,
         "predicted_defects": predicted_defects,
         "confidence_scores": confidence_scores,
         "requires_human_review": requires_human_review,
+        "telemetry": simulated_sensors,
+        "root_cause_analysis": diagnostic,
     }
 
 

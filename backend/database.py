@@ -1,0 +1,77 @@
+import os
+import logging
+from typing import Dict, Optional, Union
+from datetime import datetime
+
+from pydantic import BaseModel
+
+try:
+    from beanie import Document, init_beanie
+    from motor.motor_asyncio import AsyncIOMotorClient
+    HAS_BEANIE = True
+except ImportError:
+    Document = object  # type: ignore
+    HAS_BEANIE = False
+
+logger = logging.getLogger("quality_inspection_api")
+
+db_client = None
+is_db_connected: bool = False
+
+
+if HAS_BEANIE:
+    class InspectionTelemetry(Document):
+        batch_id: str
+        machine_id: str
+        timestamp: datetime
+        classified_defect: str
+        sensor_readings: Dict[str, float]
+        root_cause: Dict[str, Union[str, float]]
+
+        class Settings:
+            name = "inspection_telemetry"
+else:
+    class InspectionTelemetry(BaseModel):  # type: ignore
+        batch_id: str
+        machine_id: str
+        timestamp: datetime
+        classified_defect: str
+        sensor_readings: Dict[str, float]
+        root_cause: Dict[str, Union[str, float]]
+
+        async def insert(self):
+            logger.debug("Beanie/Motor not installed; document insert skipped.")
+            return self
+
+
+async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None) -> bool:
+    """
+    Initializes Beanie connection with MongoDB.
+    Reads MONGO_URI from argument or environment.
+    If no URI is provided or connection times out, logs an info message and continues.
+    """
+    global db_client, is_db_connected
+
+    if not HAS_BEANIE:
+        logger.warning("Beanie/Motor libraries not installed. MongoDB persistence disabled.")
+        is_db_connected = False
+        return False
+
+    uri = mongo_uri or os.getenv("MONGO_URI") or os.getenv("MONGODB_URL")
+    database_name = db_name or os.getenv("MONGO_DB_NAME", "quality_inspection")
+
+    if not uri:
+        logger.info("MongoDB URI not provided. Database persistence disabled until configured.")
+        is_db_connected = False
+        return False
+
+    try:
+        db_client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=4000)
+        await init_beanie(database=db_client[database_name], document_models=[InspectionTelemetry])
+        is_db_connected = True
+        logger.info(f"Connected to MongoDB database '{database_name}' successfully via Beanie.")
+        return True
+    except Exception as exc:
+        logger.warning(f"Could not connect to MongoDB ({exc}). Running with DB persistence disabled.")
+        is_db_connected = False
+        return False
