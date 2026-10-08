@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { RotateCcw } from "lucide-react";
 
 interface LinenHeaderProps {
@@ -16,7 +17,7 @@ export function LinenHeader({
     <header className="border-b border-[#EAE4D7] bg-[#FAF8F5]/90 sticky top-0 z-40 backdrop-blur-md">
       <div className="max-w-[1600px] mx-auto px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4">
         {/* Brand */}
-        <div className="flex items-center gap-3">
+        <Link href="/" aria-label="Qastra home" className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-lg bg-[#1C1917] flex items-center justify-center p-1 shadow-xs shrink-0 select-none">
             <svg
               viewBox="0 0 32 32"
@@ -47,7 +48,7 @@ export function LinenHeader({
               Automated Component Quality Analysis
             </p>
           </div>
-        </div>
+        </Link>
 
         {/* Action: Clean Reset button */}
         {hasActiveInspection && onResetAll && (
