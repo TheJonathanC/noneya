@@ -9,6 +9,8 @@ BEANIE_IMPORT_ERROR = None
 try:
     from beanie import Document, init_beanie
     from motor.motor_asyncio import AsyncIOMotorClient
+    # Satisfy Beanie's PyMongo append_metadata call without triggering MotorDatabase fallback
+    AsyncIOMotorClient.append_metadata = lambda *args, **kwargs: None  # type: ignore
     HAS_BEANIE = True
 except Exception as e:
     Document = object  # type: ignore
