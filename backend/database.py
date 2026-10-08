@@ -5,13 +5,15 @@ from datetime import datetime
 
 from pydantic import BaseModel
 
+BEANIE_IMPORT_ERROR = None
 try:
     from beanie import Document, init_beanie
     from motor.motor_asyncio import AsyncIOMotorClient
     HAS_BEANIE = True
-except ImportError:
+except Exception as e:
     Document = object  # type: ignore
     HAS_BEANIE = False
+    BEANIE_IMPORT_ERROR = str(e)
 
 logger = logging.getLogger("quality_inspection_api")
 
@@ -55,7 +57,8 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
     global db_client, is_db_connected
 
     if not HAS_BEANIE:
-        logger.warning("Beanie/Motor libraries not installed. MongoDB persistence disabled.")
+        db_error = f"Beanie/Motor not imported: {BEANIE_IMPORT_ERROR}"
+        logger.warning(db_error)
         is_db_connected = False
         return False
 

@@ -527,6 +527,8 @@ async def db_health():
         except Exception:
             count = 0
     return {
+        "has_beanie": database.HAS_BEANIE,
+        "beanie_import_error": database.BEANIE_IMPORT_ERROR,
         "connected": database.is_db_connected,
         "database": os.getenv("MONGO_DB_NAME", "qastra"),
         "telemetry_records_count": count,
