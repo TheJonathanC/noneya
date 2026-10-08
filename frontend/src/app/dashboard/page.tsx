@@ -12,7 +12,7 @@ import {
 import { InspectionItem } from "@/lib/inspection-adapter";
 
 export default function QualityInspectionDashboard() {
-  const [mode, setMode] = useState<"single" | "batch">("single");
+  const [mode, setMode] = useState<"single" | "batch">("batch");
   const [stagedItems, setStagedItems] = useState<StagedItem[]>([]);
   const [isDispatching, setIsDispatching] = useState(false);
   const [currentProcessingIndex, setCurrentProcessingIndex] = useState<number>(-1);
@@ -327,19 +327,6 @@ export default function QualityInspectionDashboard() {
           ) : (
             /* Expanded Intake Panel */
             <div className="h-full flex flex-col relative overflow-hidden">
-              {/* Collapse Button Header Tab (Desktop) */}
-              <div className="hidden lg:flex absolute top-3.5 right-3.5 z-20">
-                <button
-                  type="button"
-                  onClick={() => setIsSidebarCollapsed(true)}
-                  title="Minimize sidebar to focus on inspection"
-                  aria-label="Minimize sidebar"
-                  className="p-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] transition-colors cursor-pointer shadow-2xs"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
               <LinenIntake
                 mode={mode}
                 onModeChange={(newMode) => {
@@ -362,6 +349,7 @@ export default function QualityInspectionDashboard() {
                     setSelectedIndex(idx);
                   }
                 }}
+                onToggleCollapse={() => setIsSidebarCollapsed(true)}
               />
             </div>
           )}

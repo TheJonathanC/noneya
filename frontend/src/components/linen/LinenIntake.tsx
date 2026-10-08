@@ -9,6 +9,7 @@ import {
   RefreshCw,
   FileImage,
   AlertCircle,
+  ChevronLeft,
 } from "lucide-react";
 import { DotsLoader } from "@/components/common/DotsLoader";
 
@@ -34,6 +35,7 @@ interface LinenIntakeProps {
   currentProcessingIndex?: number;
   selectedItemIndex?: number;
   onSelectItem?: (index: number) => void;
+  onToggleCollapse?: () => void;
 }
 
 export function LinenIntake({
@@ -48,6 +50,7 @@ export function LinenIntake({
   currentProcessingIndex = -1,
   selectedItemIndex = 0,
   onSelectItem,
+  onToggleCollapse,
 }: LinenIntakeProps) {
   const [isDragging, setIsDragging] = useState(false);
   const [intakeError, setIntakeError] = useState<string | null>(null);
@@ -112,33 +115,29 @@ export function LinenIntake({
     <div className="flex flex-col h-full bg-[#FAF8F5] border-r border-[#EAE4D7]">
       {/* Top Section: Mode Switcher */}
       <div className="p-4 sm:p-5 border-b border-[#EAE4D7] space-y-3 shrink-0">
-        <div className="flex items-center justify-between">
-          <span className="font-semibold text-xs tracking-tight text-[#1C1917]">
-            Upload Component
-          </span>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {onToggleCollapse && (
+              <button
+                type="button"
+                onClick={onToggleCollapse}
+                title="Minimize intake sidebar"
+                aria-label="Minimize intake sidebar"
+                className="hidden lg:flex p-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] transition-colors cursor-pointer shadow-2xs shrink-0"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <span className="font-semibold text-xs tracking-tight text-[#1C1917]">
+              Upload Component
+            </span>
+          </div>
 
           <div
             role="tablist"
             aria-label="Upload inspection mode"
-            className="flex p-0.5 rounded-lg bg-[#EAE4D7] text-xs font-medium"
+            className="flex p-0.5 rounded-lg bg-[#EAE4D7] text-xs font-medium shrink-0"
           >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "single"}
-              onClick={() => {
-                onModeChange("single");
-                setIntakeError(null);
-              }}
-              className={`py-1 px-2.5 rounded-md text-[11px] transition-all cursor-pointer ${
-                mode === "single"
-                  ? "bg-[#FFFFFF] text-[#1C1917] font-semibold shadow-2xs"
-                  : "text-[#78716A] hover:text-[#1C1917]"
-              }`}
-            >
-              Single
-            </button>
-
             <button
               type="button"
               role="tab"
@@ -154,6 +153,23 @@ export function LinenIntake({
               }`}
             >
               Batch
+            </button>
+
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === "single"}
+              onClick={() => {
+                onModeChange("single");
+                setIntakeError(null);
+              }}
+              className={`py-1 px-2.5 rounded-md text-[11px] transition-all cursor-pointer ${
+                mode === "single"
+                  ? "bg-[#FFFFFF] text-[#1C1917] font-semibold shadow-2xs"
+                  : "text-[#78716A] hover:text-[#1C1917]"
+              }`}
+            >
+              Single
             </button>
           </div>
         </div>
