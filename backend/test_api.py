@@ -127,9 +127,52 @@ def test_quality_inspection_pipeline():
         res_batch = client.post("/test/classify-batch", files=batch_files)
         assert res_batch.status_code == 200, f"Expected 200, got {res_batch.status_code}"
         batch_data = res_batch.json()
-        print(" Batch items processed:", batch_data.get("total_images"))
-        print(" Defects detected:", batch_data.get("defects_detected"))
-        print(" Average latency:", batch_data.get("average_latency_ms"), "ms")
+        # 6. Test Model 2 Multi-Label Classification (/test-model2)
+        print("\n[6] Testing Model 2 Multi-Label Classification (/test-model2)...")
+        file_m2 = {"file": ("impeller_defect_sample.png", create_dummy_image((200, 150, 100)), "image/png")}
+        res_m2 = client.post("/test-model2", files=file_m2)
+        assert res_m2.status_code == 200, f"Expected 200, got {res_m2.status_code}: {res_m2.text}"
+        m2_data = res_m2.json()
+        print(" Model 2 Predicted Defects:", m2_data.get("predicted_defects"))
+        print(" Model 2 Confidence Scores:", m2_data.get("confidence_scores"))
+        print(" Model 2 Requires Human Review:", m2_data.get("requires_human_review"))
+        assert "predicted_defects" in m2_data
+        assert "confidence_scores" in m2_data
+        assert "requires_human_review" in m2_data
+
+        # 7. Test Integrated Pipeline (/test-integrated-pipeline)
+        print("\n[7] Testing Integrated Pipeline (/test-integrated-pipeline)...")
+        # 7a: Normal / Healthy Case routing check (color (100, 200, 100) evaluates to prob OK = 1.0)
+        res_pipe_normal = client.post(
+            "/test-integrated-pipeline",
+            files={"file": ("healthy_impeller.png", create_dummy_image(color=(100, 200, 100)), "image/png")}
+        )
+        assert res_pipe_normal.status_code == 200, f"Expected 200, got {res_pipe_normal.status_code}: {res_pipe_normal.text}"
+        norm_data = res_pipe_normal.json()
+        print(" Normal Case Response:", norm_data)
+        assert norm_data.get("status") == "OK"
+        assert norm_data.get("routing") == "Forwarded to batch engine / telemetry check"
+
+        # 7b: Defective Case with real image if available
+        test_img_path = os.path.join(CURRENT_DIR, "models", "classification", "image.jpeg")
+        if os.path.exists(test_img_path):
+            with open(test_img_path, "rb") as f:
+                img_bytes = f.read()
+            res_pipe_defect = client.post(
+                "/test-integrated-pipeline",
+                files={"file": ("defective_part.jpg", img_bytes, "image/jpeg")}
+            )
+            assert res_pipe_defect.status_code == 200, f"Expected 200, got {res_pipe_defect.status_code}: {res_pipe_defect.text}"
+            defect_data = res_pipe_defect.json()
+            print(" Defective Case Response:")
+            print("   Status:", defect_data.get("status"))
+            print("   Predicted Defects:", defect_data.get("predicted_defects"))
+            print("   Confidence Scores:", defect_data.get("confidence_scores"))
+            print("   Requires Human Review:", defect_data.get("requires_human_review"))
+            assert defect_data.get("status") == "Defective"
+            assert isinstance(defect_data.get("predicted_defects"), list)
+            assert isinstance(defect_data.get("confidence_scores"), dict)
+            assert isinstance(defect_data.get("requires_human_review"), bool)
 
         print("\n" + "=" * 60)
         print("ALL TESTS PASSED SUCCESSFULLY! BACKEND PIPELINE VERIFIED.")

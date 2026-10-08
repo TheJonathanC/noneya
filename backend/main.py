@@ -29,12 +29,15 @@ from pydantic import BaseModel
 
 try:
     import torch
+    import torch.nn as nn
     import timm
-    from torchvision import transforms
+    from torchvision import models, transforms
     HAS_TORCH = True
 except ImportError:
     torch = None
+    nn = None
     timm = None
+    models = None
     transforms = None
     HAS_TORCH = False
 
@@ -79,12 +82,23 @@ sim_telemetry_df = None
 sim_telemetry_z = None
 risk_model = None
 
-# PyTorch Classification Model (Vision Model A: EfficientNet-B0)
+# ---------------------------------------------------------
+# Model 1: Gatekeeper / Binary Defect Classifier
+# ---------------------------------------------------------
+model1 = None
+model1_device = None
+model1_transform = None
 clf_model = None
 clf_transform = None
+
 if HAS_TORCH and transforms:
     clf_transform = transforms.Compose([
         transforms.Resize((512, 512)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+    model1_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ])
@@ -112,6 +126,108 @@ def load_classifier():
         logger.error(f"Failed to load clf.pt: {exc}")
         return None
 
+def init_model1():
+    """
+    Initializes Model 1 (Gatekeeper/Binary Classifier).
+    Detects if an image is 'Defective' or 'Normal'.
+    Loads ResNet-18 binary if weights exist at models/classification/model1/model1_binary.pt
+    or models/classification/model1.pt; falls back to loading clf.pt.
+    Sets to eval() mode globally.
+    """
+    global model1, model1_device
+    if model1 is not None:
+        return model1
+
+    if not HAS_TORCH:
+        return None
+
+    model1_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Check for dedicated ResNet-18 binary weights
+    candidate_paths = [
+        os.path.join(CURRENT_DIR, "models", "classification", "model1", "model1_binary.pt"),
+        os.path.join(CURRENT_DIR, "models", "classification", "model1", "model1.pt"),
+        os.path.join(CURRENT_DIR, "models", "classification", "model1_binary.pt"),
+    ]
+    for p in candidate_paths:
+        if os.path.exists(p) and models is not None:
+            try:
+                net = models.resnet18(weights=None)
+                net.fc = nn.Linear(net.fc.in_features, 2)
+                state = torch.load(p, map_location=model1_device)
+                if isinstance(state, dict) and "state_dict" in state:
+                    state = state["state_dict"]
+                net.load_state_dict(state)
+                net.to(model1_device)
+                net.eval()
+                model1 = net
+                logger.info(f"Model 1 (ResNet-18 binary) loaded successfully from {p} on {model1_device}")
+                return model1
+            except Exception as e:
+                logger.warning(f"Failed loading ResNet18 binary weights from {p}: {e}")
+
+    # Fallback to existing clf_model (pre-trained binary classifier in eval mode)
+    clf = clf_model or load_classifier()
+    if clf is not None:
+        clf.eval()
+        model1 = clf
+        logger.info("Model 1 initialized using clf.pt binary classifier in eval() mode.")
+    return model1
+
+# ---------------------------------------------------------
+# Model 2: Multi-Label ResNet-18 Defect Classifier
+# ---------------------------------------------------------
+MODEL2_CLASSES = ['corrosion', 'crack', 'deformation', 'dent', 'porosity', 'scratch']
+model2 = None
+model2_device = None
+model2_transform = None
+
+if HAS_TORCH and transforms:
+    model2_transform = transforms.Compose([
+        transforms.Resize((224, 224)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+def init_model2():
+    """
+    Initializes torchvision.models.resnet18 with fc layer modified for 6 classes.
+    Loads weights from backend/models/classification/model2/model2_multilabel.pt.
+    Sets to eval() mode on CUDA (if available) or CPU.
+    """
+    global model2, model2_device
+    if model2 is not None:
+        return model2
+
+    if not HAS_TORCH or models is None:
+        logger.warning("PyTorch/torchvision not available to load Model 2.")
+        return None
+
+    model2_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    weights_path = os.path.join(
+        CURRENT_DIR, "models", "classification", "model2", "model2_multilabel.pt"
+    )
+
+    try:
+        net = models.resnet18(weights=None)
+        net.fc = nn.Linear(net.fc.in_features, len(MODEL2_CLASSES))
+
+        if os.path.exists(weights_path):
+            state = torch.load(weights_path, map_location=model2_device)
+            if isinstance(state, dict) and "state_dict" in state:
+                state = state["state_dict"]
+            net.load_state_dict(state)
+            logger.info(f"Model 2 (ResNet-18 multi-label) successfully loaded on {model2_device}")
+        else:
+            logger.warning(f"Model 2 weights file not found at: {weights_path}")
+
+        net.to(model2_device)
+        net.eval()
+        model2 = net
+        return model2
+    except Exception as exc:
+        logger.error(f"Failed to load Model 2 weights: {exc}")
+        return None
+
 # Thread pool executor for parallel vision inference tasks
 vision_executor = ThreadPoolExecutor(max_workers=5)
 
@@ -132,8 +248,10 @@ async def lifespan(app: FastAPI):
     risk_model = process_sim.train_risk(sim_telemetry_df)
     logger.info("Risk model successfully trained and ready in memory.")
     
-    # Pre-warm classification model
+    # Pre-warm classification models
     load_classifier()
+    init_model1()
+    init_model2()
     
     yield
     
@@ -607,4 +725,268 @@ async def test_classification_batch(files: List[UploadFile] = File(...)):
         "average_latency_ms": round(total_latency_ms / len(files), 2) if files else 0,
         "gemini_bypassed": True,
     }
+
+
+# ---------------------------------------------------------
+# Model 2: Multi-Label ResNet-18 Defect Testing Route
+# ---------------------------------------------------------
+
+@app.post("/test-model2")
+async def test_model2(file: UploadFile = File(...)):
+    """
+    Multi-label defect classification test route (Vision Model: ResNet-18).
+    
+    Classes (6): ['corrosion', 'crack', 'deformation', 'dent', 'porosity', 'scratch']
+    Logic:
+      1. Sigmoid probabilities on model outputs: torch.sigmoid(outputs)[0].
+      2. If any probability > 0.5 (50%), add that class to predicted_defects.
+      3. Gatekeeper Fallback: If NO probability > 0.5, force prediction with torch.argmax(),
+         append highest class to predicted_defects, and set is_forced = True.
+      4. Output:
+         - predicted_defects: List[str]
+         - confidence_scores: Dict[str, str] (e.g. {"crack": "85.4%"})
+         - requires_human_review: bool (is_forced)
+    """
+    # 1. Read and decode image
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not read image file: {str(exc)}",
+        )
+
+    # 2. Ensure Model 2 is loaded
+    net = model2 or init_model2()
+    if net is None or model2_transform is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model 2 (ResNet-18) is not initialized or weights file is missing.",
+        )
+
+    # 3. Preprocess (224x224, ToTensor, Normalize) and run inference
+    try:
+        input_tensor = model2_transform(image).unsqueeze(0).to(model2_device)
+        with torch.no_grad():
+            outputs = net(input_tensor)
+            probs = torch.sigmoid(outputs)[0]
+    except Exception as exc:
+        logger.error(f"Model 2 inference failure: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Model 2 inference failed: {str(exc)}",
+        )
+
+    # 4. Gatekeeper logic
+    predicted_defects = []
+    confidence_scores = {}
+    is_forced = False
+
+    # Primary Logic: Iterate through probabilities. If any score > 0.5, add to predicted_defects
+    for idx, class_name in enumerate(MODEL2_CLASSES):
+        prob_val = float(probs[idx].item())
+        if prob_val > 0.5:
+            predicted_defects.append(class_name)
+            confidence_scores[class_name] = f"{round(prob_val * 100, 1)}%"
+
+    # Gatekeeper Fallback: If NO probability is > 0.5, force highest prediction
+    if not predicted_defects:
+        is_forced = True
+        highest_idx = int(torch.argmax(probs).item())
+        highest_class = MODEL2_CLASSES[highest_idx]
+        highest_score = float(probs[highest_idx].item())
+        predicted_defects.append(highest_class)
+        confidence_scores[highest_class] = f"{round(highest_score * 100, 1)}%"
+
+    requires_human_review = is_forced
+
+    return {
+        "predicted_defects": predicted_defects,
+        "confidence_scores": confidence_scores,
+        "requires_human_review": requires_human_review,
+    }
+
+
+# ---------------------------------------------------------
+# Integrated Pipeline & Grad-CAM Heatmap Masking
+# ---------------------------------------------------------
+
+def get_final_conv_layer(model):
+    """Dynamically finds the last Conv2d layer in a CNN model."""
+    last_conv = None
+    for module in model.modules():
+        if isinstance(module, torch.nn.Conv2d):
+            last_conv = module
+    return last_conv
+
+
+def extract_gradcam_mask(model, input_tensor, target_class: int = 1) -> "torch.Tensor":
+    """
+    Extracts a Grad-CAM heatmap mask from Model 1's final convolutional layer,
+    normalizes it to [0.0, 1.0], and upsamples it to input_tensor spatial dimensions (H, W).
+    """
+    final_conv = get_final_conv_layer(model)
+    if final_conv is None:
+        h, w = input_tensor.shape[2], input_tensor.shape[3]
+        return torch.ones((1, 1, h, w), device=input_tensor.device)
+
+    activations = []
+    gradients = []
+
+    def f_hook(module, inp, out):
+        activations.append(out)
+
+    def b_hook(module, grad_in, grad_out):
+        gradients.append(grad_out[0])
+
+    f_handle = final_conv.register_forward_hook(f_hook)
+    b_handle = final_conv.register_full_backward_hook(b_hook)
+
+    try:
+        with torch.enable_grad():
+            tensor_clone = input_tensor.clone().detach().requires_grad_(True)
+            output = model(tensor_clone)
+            score = output[0, target_class]
+            model.zero_grad()
+            score.backward(retain_graph=True)
+
+        if gradients and activations:
+            grad = gradients[0]
+            act = activations[0]
+            # Global Average Pooling of gradients across spatial dimensions
+            weights = torch.mean(grad, dim=(2, 3), keepdim=True)
+            cam = torch.relu(torch.sum(weights * act, dim=1, keepdim=True))
+        elif activations:
+            cam = torch.relu(torch.mean(activations[0], dim=1, keepdim=True))
+        else:
+            cam = torch.ones((1, 1, input_tensor.shape[2], input_tensor.shape[3]), device=input_tensor.device)
+    except Exception as exc:
+        logger.warning(f"Grad-CAM hook warning: {exc}; using activation norm fallback.")
+        if activations:
+            cam = torch.relu(torch.mean(activations[0], dim=1, keepdim=True))
+        else:
+            cam = torch.ones((1, 1, input_tensor.shape[2], input_tensor.shape[3]), device=input_tensor.device)
+    finally:
+        f_handle.remove()
+        b_handle.remove()
+
+    # Normalize to [0, 1]
+    cam_min = cam.min()
+    cam_max = cam.max()
+    if cam_max > cam_min:
+        cam = (cam - cam_min) / (cam_max - cam_min)
+    else:
+        cam = torch.ones_like(cam)
+
+    # Upsample to match original image spatial dimensions
+    mask = torch.nn.functional.interpolate(
+        cam,
+        size=(input_tensor.shape[2], input_tensor.shape[3]),
+        mode="bilinear",
+        align_corners=False,
+    )
+    return mask
+
+
+@app.post("/test-integrated-pipeline")
+async def test_integrated_pipeline(file: UploadFile = File(...)):
+    """
+    Sequential Pipeline:
+      Phase 1: Model 1 (Gatekeeper/Binary) classifies image.
+      Phase 2: If Normal, immediately return status OK and route to telemetry/batch engine.
+      Phase 3: If Defective, extract Grad-CAM heatmap mask from Model 1's final conv layer
+               and multiply by the original image tensor to isolate the defect.
+      Phase 4: Pass masked image into Model 2 (6-class ResNet-18) to categorize defects.
+    """
+    # 1. Read & decode image
+    try:
+        contents = await file.read()
+        image = Image.open(io.BytesIO(contents)).convert("RGB")
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Could not read image file: {str(exc)}",
+        )
+
+    # 2. Ensure both models are loaded
+    m1 = model1 or init_model1() or load_classifier()
+    m2 = model2 or init_model2()
+
+    if m1 is None or m2 is None or clf_transform is None or model2_transform is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="One or both classification models are not loaded or weights are unavailable.",
+        )
+
+    # Phase 1: Model 1 Binary Evaluation
+    device1 = next(m1.parameters()).device
+    device2 = model2_device or next(m2.parameters()).device
+    
+    # Use 224x224 transform if ResNet, else 512x512 for EfficientNet
+    is_resnet = isinstance(m1, models.ResNet) if models and hasattr(models, "ResNet") else False
+    t1 = model1_transform if (is_resnet and model1_transform) else (clf_transform or model1_transform)
+    input_tensor1 = t1(image).unsqueeze(0).to(device1)
+
+    with torch.no_grad():
+        logits1 = m1(input_tensor1)
+        probs1 = torch.softmax(logits1, dim=1)[0]
+        # Class 0: Normal/OK, Class 1: Defective
+        p_defect = float(probs1[1].item())
+
+    is_defective = p_defect >= 0.5
+
+    # Phase 2: Normal Case Routing (Stop pipeline immediately)
+    if not is_defective:
+        return {
+            "status": "OK",
+            "routing": "Forwarded to batch engine / telemetry check",
+        }
+
+    # Phase 3: Defective Case & Heatmap Masking
+    heatmap_mask = extract_gradcam_mask(m1, input_tensor1, target_class=1)
+    masked_tensor = input_tensor1 * heatmap_mask  # Black out healthy background
+
+    # Phase 4: Model 2 Multi-Label Categorization on Masked Defect
+    # Resize masked tensor to 224x224 for ResNet-18
+    masked_input2 = torch.nn.functional.interpolate(
+        masked_tensor,
+        size=(224, 224),
+        mode="bilinear",
+        align_corners=False,
+    ).to(device2)
+
+    with torch.no_grad():
+        outputs2 = m2(masked_input2)
+        probs2 = torch.sigmoid(outputs2)[0]
+
+    predicted_defects = []
+    confidence_scores = {}
+    is_forced = False
+
+    # Primary Logic: If score > 0.5, add to predicted_defects
+    for idx, class_name in enumerate(MODEL2_CLASSES):
+        score = float(probs2[idx].item())
+        if score > 0.5:
+            predicted_defects.append(class_name)
+            confidence_scores[class_name] = f"{round(score * 100, 1)}%"
+
+    # Gatekeeper Fallback: If NO score > 0.5, force prediction
+    if not predicted_defects:
+        is_forced = True
+        highest_idx = int(torch.argmax(probs2).item())
+        highest_class = MODEL2_CLASSES[highest_idx]
+        highest_score = float(probs2[highest_idx].item())
+        predicted_defects.append(highest_class)
+        confidence_scores[highest_class] = f"{round(highest_score * 100, 1)}%"
+
+    requires_human_review = is_forced
+
+    return {
+        "status": "Defective",
+        "predicted_defects": predicted_defects,
+        "confidence_scores": confidence_scores,
+        "requires_human_review": requires_human_review,
+    }
+
 
