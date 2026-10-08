@@ -1,0 +1,33 @@
+name: Auto-Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'backend/**'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to KVM Server
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: root
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # Navigate to the backend directory on the server
+            cd ~/noneya/backend
+            
+            # Pull the latest code from GitHub
+            git pull origin main
+            
+            # Stop and remove the old container
+            docker stop fastapi-app || true
+            docker rm fastapi-app || true
+            
+            # Rebuild and launch the new container
+            docker build -t singularity-api .
+            docker run -d --name fastapi-app --restart unless-stopped -p 8000:8000 singularity-api
