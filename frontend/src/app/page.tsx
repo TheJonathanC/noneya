@@ -298,22 +298,6 @@ export default function Home() {
           </div>
         )}
 
-        {/* Vercel & HTTP Explanation Banner */}
-        <div className="rounded-xl border border-indigo-900/40 bg-indigo-950/20 p-4 text-xs text-indigo-200 flex items-start gap-3">
-          <Info className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
-          <div className="space-y-1">
-            <p className="font-semibold text-indigo-100">
-              Can Vercel send requests to HTTP sites?
-            </p>
-            <p className="text-slate-300 leading-relaxed">
-              <strong>Yes, through Server-Side API routes!</strong> When deployed to Vercel (HTTPS),
-              browsers block direct client-side requests to insecure <code className="bg-slate-900 px-1 py-0.5 rounded text-amber-300 font-mono">http://</code> endpoints due to{" "}
-              <em>Mixed Content Security</em>. However, Vercel Serverless Functions (like our{" "}
-              <code className="bg-slate-900 px-1 py-0.5 rounded text-indigo-300 font-mono">/api/classify</code>{" "}
-              route) run in Node.js on the server side, where they can freely send requests to any HTTP endpoint.
-            </p>
-          </div>
-        </div>
 
         {/* Upload & Preview Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
