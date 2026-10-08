@@ -20,11 +20,11 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             set -e
-            # Navigate to the backend directory on the server
-            cd ~/noneya/backend
-            
-            # Pull the latest code from GitHub
+            # Ensure repository is clean and reset any stray server edits
+            cd ~/noneya
+            git reset --hard HEAD
             git pull origin main
+            cd ~/noneya/backend
             
             # Rebuild the new container image first
             docker build -t singularity-api .
