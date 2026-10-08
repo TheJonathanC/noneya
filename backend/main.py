@@ -530,6 +530,17 @@ async def db_health():
         "connected": database.is_db_connected,
         "database": os.getenv("MONGO_DB_NAME", "qastra"),
         "telemetry_records_count": count,
+        "connection_error": database.db_error,
+    }
+
+
+@app.post("/api/db/reconnect")
+async def db_reconnect(mongo_uri: Optional[str] = None):
+    """Attempts to reconnect to MongoDB Atlas live without container restart."""
+    success = await database.init_db(mongo_uri=mongo_uri)
+    return {
+        "connected": success,
+        "error": database.db_error,
     }
 
 

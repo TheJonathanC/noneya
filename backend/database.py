@@ -17,6 +17,7 @@ logger = logging.getLogger("quality_inspection_api")
 
 db_client = None
 is_db_connected: bool = False
+db_error: Optional[str] = None
 
 
 if HAS_BEANIE:
@@ -70,9 +71,11 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
         db_client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=8000)
         await init_beanie(database=db_client[database_name], document_models=[InspectionTelemetry])
         is_db_connected = True
+        db_error = None
         logger.info(f"Connected to MongoDB database '{database_name}' successfully via Beanie.")
         return True
     except Exception as exc:
+        db_error = str(exc)
         logger.warning(f"Could not connect to MongoDB ({exc}). Running with DB persistence disabled.")
         is_db_connected = False
         return False
