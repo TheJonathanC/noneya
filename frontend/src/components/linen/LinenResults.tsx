@@ -1,28 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React from "react";
 import {
   CheckCircle2,
   AlertTriangle,
   AlertCircle,
   Scan,
-  FileCode2,
-  Activity,
-  ClipboardList,
-  Printer,
-  FileCheck2,
-  Wrench,
-  Sparkles,
-  Thermometer,
-  Gauge,
-  Waves,
-  Zap,
   RotateCcw,
-  X,
+  Sparkles,
+  Printer,
+  ShieldCheck,
+  ShieldAlert,
 } from "lucide-react";
-import { InspectionItem, SensorTelemetry } from "@/lib/inspection-adapter";
+import { InspectionItem } from "@/lib/inspection-adapter";
 import { InspectionError } from "@/lib/api";
-import { Badge } from "@/components/ui/badge";
 import { LinenJsonViewer } from "./LinenJsonViewer";
 import { LinenImageViewer } from "./LinenImageViewer";
 
@@ -51,660 +42,301 @@ export function LinenResults({
   rawJson,
   isLoading,
   isBatch,
-  gateDecision,
   batchStats,
   onLoadQuickSample,
   errorState,
   onRetry,
-  onDismissError,
-  onEnableMockFallback,
 }: LinenResultsProps) {
-  const [activeTab, setActiveTab] = useState<"visual" | "json" | "telemetry">("visual");
-  const [acknowledged, setAcknowledged] = useState(false);
-
-  // If currently dispatching
+  // Loading State
   if (isLoading) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] font-mono text-center space-y-6">
-        <div className="relative flex items-center justify-center">
-          <div className="w-24 h-24 rounded-full border border-[#EA580C]/20 animate-ping motion-reduce:animate-none absolute" />
-          <div className="w-16 h-16 rounded-full border-2 border-[#EA580C]/30 border-t-[#EA580C] animate-spin flex items-center justify-center bg-[#FDF2E9]">
-            <Scan aria-hidden="true" className="w-7 h-7 text-[#9A3412]" />
-          </div>
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] text-center space-y-4">
+        <div className="w-12 h-12 rounded-full border-2 border-[#E5DFD3] border-t-[#1C1917] animate-spin flex items-center justify-center">
+          <Scan aria-hidden="true" className="w-5 h-5 text-[#1C1917]" />
         </div>
-
-        <div className="space-y-2 max-w-md">
-          <h2 className="text-sm font-bold text-[#1C1917] uppercase tracking-wider text-balance">
-            Handing Off Payload to Backend Models…
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold text-[#1C1917]">
+            Analyzing Component…
           </h2>
-          <p className="text-xs text-[#78716A] leading-relaxed text-balance">
-            Dispatching component capture to Vision Model A (EfficientNet-B0) and inspection pipeline on
-            82.112.231.102. Awaiting raw classification JSON…
+          <p className="text-xs text-[#78716A]">
+            Evaluating image and running integrated pipeline.
           </p>
-        </div>
-
-        <div className="p-3.5 rounded-xl border border-[#E6E0D3] bg-[#FFFFFF] text-[11px] text-[#78716A] space-y-1 text-left w-full max-w-sm shadow-xs">
-          <div className="text-[#9A3412] font-semibold flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-[#EA580C] animate-pulse" />
-            <span>ACTIVE BACKEND PIPELINE</span>
-          </div>
-          <div className="text-[#A8A29E] text-[10px]">
-            Target: http://82.112.231.102/api/inspect
-          </div>
         </div>
       </div>
     );
   }
 
-  // If an error occurred and no results are loaded yet
+  // Error State
   if (errorState && !activeItem) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 bg-[#FAF8F5] font-mono text-center space-y-6">
-        <div className="p-4 sm:p-5 rounded-2xl bg-[#FEF6F3] border border-[#FCD6C2] text-[#9A3412] shadow-xs">
-          <AlertCircle aria-hidden="true" className="w-10 h-10 text-[#EA580C]" />
+      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 bg-[#FAF8F5] text-center space-y-5">
+        <div className="p-4 rounded-2xl bg-[#FEF2F2] border border-[#FCA5A5]/60 text-[#991B1B]">
+          <AlertCircle aria-hidden="true" className="w-8 h-8" />
         </div>
 
-        <div className="space-y-2 max-w-lg">
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#FDF2E9] border border-[#FCD6C2] text-[11px] text-[#9A3412] font-bold">
-            <span>{errorState.code || "DISPATCH_FAILED"}</span>
-            {errorState.statusCode && <span>• HTTP {errorState.statusCode}</span>}
-          </div>
-          <h2 className="text-base font-bold text-[#1C1917] uppercase tracking-wider text-balance">
-            {errorState.title}
+        <div className="space-y-1.5 max-w-md">
+          <h2 className="text-sm font-bold text-[#1C1917]">
+            {errorState.title || "Inspection Failed"}
           </h2>
-          <p className="text-xs text-[#57534E] leading-relaxed text-balance">
+          <p className="text-xs text-[#57534E] leading-relaxed">
             {errorState.message}
           </p>
         </div>
 
-        {/* Technical Diagnostics Box */}
-        {(errorState.detail || errorState.backendTarget) && (
-          <div className="w-full max-w-lg p-3.5 rounded-xl border border-[#E8DFD1] bg-[#FFFFFF] text-[11px] text-left font-mono space-y-1.5 shadow-xs">
-            <div className="text-[10px] text-[#78716A] uppercase font-bold">Error Diagnostics</div>
-            {errorState.backendTarget && (
-              <div className="text-[#57534E] truncate">
-                <span className="text-[#A8A29E]">Target:</span> {errorState.backendTarget}
-              </div>
-            )}
-            {errorState.detail && (
-              <div className="text-[#9A3412] break-words">
-                <span className="text-[#A8A29E]">Detail:</span> {errorState.detail}
-              </div>
-            )}
-            <div className="text-[10px] text-[#A8A29E] pt-1 border-t border-[#F0EAE0]">
-              Timestamp: {errorState.timestamp}
-            </div>
-          </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="py-2 px-4 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center gap-2 transition-[background-color,transform] duration-150 active:scale-[0.97] cursor-pointer shadow-xs"
+          >
+            <RotateCcw aria-hidden="true" className="w-3.5 h-3.5" />
+            <span>Retry Inspection</span>
+          </button>
         )}
-
-        {/* Action recovery buttons */}
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          {onRetry && (
-            <button
-              type="button"
-              onClick={onRetry}
-              className="py-2.5 px-4 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center gap-2 transition-[background-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
-            >
-              <RotateCcw aria-hidden="true" className="w-3.5 h-3.5" />
-              <span>Retry Inspection</span>
-            </button>
-          )}
-
-          {onEnableMockFallback && (
-            <button
-              type="button"
-              onClick={onEnableMockFallback}
-              className="py-2.5 px-4 rounded-xl border border-[#D8CFBF] bg-[#FFFFFF] hover:bg-[#F9F7F2] text-[#9A3412] text-xs font-semibold flex items-center gap-2 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
-            >
-              <Sparkles aria-hidden="true" className="w-3.5 h-3.5" />
-              <span>Switch to Offline Simulation Mode</span>
-            </button>
-          )}
-
-          {onDismissError && (
-            <button
-              type="button"
-              onClick={onDismissError}
-              className="py-2.5 px-4 rounded-xl border border-[#E5DFD3] text-[#78716A] hover:text-[#1C1917] bg-transparent text-xs font-semibold transition-[color,border-color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
-            >
-              <span>Dismiss</span>
-            </button>
-          )}
-        </div>
       </div>
     );
   }
 
-  // If idle and no item has been analyzed yet
+  // Empty Idle State
   if (!activeItem) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-12 bg-[#FAF8F5] font-mono text-center space-y-6">
-        <div className="p-5 rounded-2xl bg-[#FFFFFF] border border-[#E4DDD1] text-[#9A3412] shadow-xs">
-          <Scan aria-hidden="true" className="w-10 h-10" />
+      <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-14 bg-[#FAF8F5] text-center space-y-6">
+        <div className="w-14 h-14 rounded-2xl bg-[#F3EFE6] border border-[#E2DBD0] flex items-center justify-center text-[#78716A]">
+          <Scan aria-hidden="true" className="w-7 h-7" />
         </div>
 
-        <div className="space-y-2 max-w-md">
-          <h2 className="text-base font-bold text-[#1C1917] uppercase tracking-wider text-balance">
-            Awaiting Component Intake
+        <div className="space-y-1 max-w-md">
+          <h2 className="text-base font-semibold text-[#1C1917]">
+            No Component Inspected Yet
           </h2>
-          <p className="text-xs text-[#78716A] leading-relaxed text-balance">
-            Stage a component photo on the left intake station to run model inference and receive the
-            complete diagnostic JSON response here.
+          <p className="text-xs text-[#78716A] leading-relaxed">
+            Upload an image on the left to start inspection. If a defect is detected, the integrated diagnostic pipeline will classify it; otherwise the part is marked OK and good to go.
           </p>
-        </div>
-
-        {/* Visual Pipeline Schematic Card */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-xl text-left text-xs p-5 rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] shadow-xs">
-          <div className="space-y-1">
-            <div className="text-[10px] text-[#9A3412] uppercase font-semibold">1. Intake</div>
-            <div className="text-[#1C1917] font-bold">Optical Capture</div>
-            <p className="text-[10px] text-[#78716A]">Drop high-resolution casting impeller capture</p>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-[10px] text-[#9A3412] uppercase font-semibold">2. Hand-off</div>
-            <div className="text-[#1C1917] font-bold">EfficientNet-B0</div>
-            <p className="text-[10px] text-[#78716A]">Supervised vision classification model</p>
-          </div>
-
-          <div className="space-y-1">
-            <div className="text-[10px] text-[#9A3412] uppercase font-semibold">3. Returned JSON</div>
-            <div className="text-[#1C1917] font-bold">Verdict & Payload</div>
-            <p className="text-[10px] text-[#78716A]">Real-time JSON inspector & line tolerances</p>
-          </div>
         </div>
 
         <button
           type="button"
           onClick={onLoadQuickSample}
-          className="py-2.5 px-4 rounded-xl border border-[#D8CFBF] bg-[#FFFFFF] hover:bg-[#F9F7F2] text-[#9A3412] text-xs font-semibold flex items-center gap-2 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
+          className="py-2.5 px-4 rounded-xl border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] text-xs font-medium flex items-center gap-2 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer shadow-xs"
         >
-          <Sparkles aria-hidden="true" className="w-3.5 h-3.5" />
-          <span>Quick-Start: Load & Inspect Calibrated Sample</span>
+          <Sparkles aria-hidden="true" className="w-3.5 h-3.5 text-[#D97706]" />
+          <span>Load Sample Image</span>
         </button>
       </div>
     );
   }
 
   const isDefective = activeItem.status === "DEFECTIVE";
+  const predictedDefects = activeItem.predictedDefects || [];
+  const confidenceScores = activeItem.confidenceScores || {};
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto">
-      {/* Optional Dismissible Alert Banner if an error occurred with active results */}
-      {errorState && (
-        <div className="p-3.5 mx-4 sm:mx-6 mt-4 rounded-xl bg-[#FEF6F3] border border-[#FCD6C2] text-[#9A3412] font-mono text-xs flex items-center justify-between gap-3 shadow-xs">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <AlertCircle aria-hidden="true" className="w-4 h-4 text-[#EA580C] shrink-0" />
-            <div className="truncate">
-              <span className="font-bold uppercase mr-2">[{errorState.code}]</span>
-              <span>{errorState.message}</span>
-            </div>
+    <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto p-4 sm:p-6 space-y-6">
+      {/* Batch Navigation (when inspecting multiple parts) */}
+      {isBatch && allItems.length > 1 && (
+        <div className="p-3 bg-[#FFFFFF] rounded-2xl border border-[#E5DFD3] flex items-center justify-between gap-3 shadow-xs">
+          <div className="flex items-center gap-2 overflow-x-auto">
+            {allItems.map((item, idx) => {
+              const isItemDefective = item.status === "DEFECTIVE";
+              const isSelected = selectedIndex === idx;
+
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => onSelectIndex(idx)}
+                  className={`py-1.5 px-3 rounded-xl border text-xs font-medium flex items-center gap-2 shrink-0 transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.97] cursor-pointer ${
+                    isSelected
+                      ? "bg-[#1C1917] border-[#1C1917] text-[#FAF8F5] shadow-xs"
+                      : "bg-[#FAF8F5] border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6]"
+                  }`}
+                >
+                  <span
+                    className={`w-2 h-2 rounded-full ${
+                      isItemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                    }`}
+                  />
+                  <span>{item.fileName || `Part ${idx + 1}`}</span>
+                </button>
+              );
+            })}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
-            {onRetry && (
-              <button
-                type="button"
-                onClick={onRetry}
-                className="px-2.5 py-1 rounded-lg bg-[#9A3412] text-[#FAF8F5] text-[11px] font-semibold hover:bg-[#7C2D12] transition-colors cursor-pointer"
-              >
-                Retry
-              </button>
-            )}
-            {onDismissError && (
-              <button
-                type="button"
-                onClick={onDismissError}
-                aria-label="Dismiss error notice"
-                className="p-1 rounded text-[#9A3412] hover:bg-[#FDF2E9] transition-colors cursor-pointer"
-              >
-                <X aria-hidden="true" className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
+          {batchStats && (
+            <span className="text-xs text-[#78716A] shrink-0 font-mono">
+              {batchStats.passed}/{batchStats.total} OK
+            </span>
+          )}
         </div>
       )}
 
-      {/* 1. Executive Verdict & Model Output Header */}
-      <div className="p-4 sm:p-6 border-b border-[#E6E0D3] bg-[#FAF8F5] space-y-4">
-        {/* Top telemetry and model latency tag */}
-        <div className="flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase text-[#78716A] font-semibold">MODEL PIPELINE:</span>
-            <span className="text-[#1C1917] font-semibold">
-              Vision Model A: EfficientNet-B0
-            </span>
-            <span className="text-[#D6CEBF]">•</span>
-            <span className="text-[#9A3412] font-semibold">Optical Integrity Inspection</span>
-          </div>
+      {/* 1. Clean Optical Component Image (No red markers) */}
+      <LinenImageViewer item={activeItem} />
 
-          <div className="flex items-center gap-2 text-[11px] text-[#78716A]">
-            <span>INSPECTION ID: <strong className="text-[#1C1917]">{activeItem.id}</strong></span>
-            <span className="text-[#D6CEBF]">•</span>
-            <span>TIME: <strong className="text-[#1C1917] tabular-nums">{activeItem.timestamp}</strong></span>
-          </div>
-        </div>
-
-        {/* Primary Verdict Hero Card */}
-        <div
-          className={`p-5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-5 font-mono shadow-xs ${
-            isDefective
-              ? "bg-[#FEF6F3] border-[#FBD5C0]"
-              : "bg-[#F3FAF4] border-[#CCEBD0]"
-          }`}
-        >
-          {/* Left: Verdict Status Badge & Subtext */}
-          <div className="flex items-start sm:items-center gap-3.5">
+      {/* 2. Sleek Inspection Report */}
+      <section
+        aria-label="Inspection Report"
+        className="rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-xs"
+      >
+        {/* Report Header */}
+        <div className="p-5 border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
             <div
-              className={`p-3 rounded-xl border ${
+              className={`p-2.5 rounded-xl border ${
                 isDefective
-                  ? "bg-[#FDF2E9] border-[#FCD6C2] text-[#9A3412]"
-                  : "bg-[#EDF7EE] border-[#C6E6C8] text-[#166534]"
+                  ? "bg-[#FEF2F2] border-[#FCA5A5]/60 text-[#991B1B]"
+                  : "bg-[#F0FDF4] border-[#86EFAC]/60 text-[#166534]"
               }`}
             >
               {isDefective ? (
-                <AlertTriangle aria-hidden="true" className="w-6 h-6" />
+                <ShieldAlert aria-hidden="true" className="w-5 h-5" />
               ) : (
-                <CheckCircle2 aria-hidden="true" className="w-6 h-6" />
+                <ShieldCheck aria-hidden="true" className="w-5 h-5" />
               )}
             </div>
 
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-lg font-bold text-[#1C1917] tracking-wider">
-                  PREDICTION: {isDefective ? "DEFECTIVE" : "OK"}
-                </span>
-                <Badge
-                  variant={isDefective ? "defective" : "nominal"}
-                  size="md"
-                  dot
+              <div className="flex items-center gap-2.5">
+                <h3 className="text-sm font-semibold text-[#1C1917]">
+                  Inspection Report
+                </h3>
+                <span
+                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                    isDefective
+                      ? "bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5]/70"
+                      : "bg-[#F0FDF4] text-[#166534] border border-[#86EFAC]/70"
+                  }`}
                 >
-                  {isDefective ? activeItem.defectType.toUpperCase() : "SPEC NOMINAL"}
-                </Badge>
+                  {isDefective ? "Defect Detected" : "OK • Good to Go"}
+                </span>
               </div>
-
-              <p className="text-xs text-[#57534E] mt-1 text-balance">
-                {isDefective
-                  ? `Surface variance localized. Severity rated ${activeItem.severity}. Line intervention protocol active.`
-                  : "All dimensional tolerances, surface contours, and visual densities pass factory quality specification."}
+              <p className="text-xs text-[#78716A] mt-0.5">
+                {activeItem.fileName || "Component Analysis"} • Scanned at{" "}
+                <span className="font-mono tabular-nums">{activeItem.timestamp}</span>
               </p>
             </div>
           </div>
 
-          {/* Right: Confidence Score & Metrics */}
-          <div className="flex items-center gap-5 shrink-0 border-t sm:border-t-0 sm:border-l border-[#E2DBD0] pt-3 sm:pt-0 sm:pl-5">
-            <div className="text-left sm:text-right">
-              <div className="text-[10px] text-[#78716A] uppercase font-semibold">Model Confidence</div>
-              <div
-                className={`text-2xl font-bold tabular-nums ${
-                  isDefective ? "text-[#9A3412]" : "text-[#166534]"
-                }`}
-              >
-                {activeItem.confidenceScore.toFixed(1)}%
+          <button
+            type="button"
+            onClick={() => window.print()}
+            aria-label="Print report"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] text-xs font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer"
+          >
+            <Printer aria-hidden="true" className="w-3.5 h-3.5" />
+            <span>Print Report</span>
+          </button>
+        </div>
+
+        {/* Executive Summary Message */}
+        <div className="p-5 space-y-4">
+          <div
+            className={`p-4 rounded-xl border flex items-start gap-3 ${
+              isDefective
+                ? "bg-[#FFF5F5] border-[#FED7D7] text-[#991B1B]"
+                : "bg-[#F6FEF8] border-[#DCFCE7] text-[#166534]"
+            }`}
+          >
+            {isDefective ? (
+              <AlertTriangle aria-hidden="true" className="w-5 h-5 shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 aria-hidden="true" className="w-5 h-5 shrink-0 mt-0.5" />
+            )}
+            <div className="space-y-1">
+              <div className="text-sm font-semibold">
+                {isDefective
+                  ? "Defect detected: routed to integrated diagnostic pipeline."
+                  : "The part is OK and good to go."}
               </div>
+              <p className="text-xs leading-relaxed text-[#57534E]">
+                {isDefective
+                  ? "A defect was found during the initial inspection pass. The integrated diagnostic pipeline was called to categorize and assess the defect."
+                  : "All optical surface contours and dimensional tolerances are nominal. No defects were detected, and the part is verified for use."}
+              </p>
             </div>
+          </div>
 
-            <div className="h-9 w-[1px] bg-[#E2DBD0] hidden sm:block" />
-
-            <div className="text-left sm:text-right">
-              <div className="text-[10px] text-[#78716A] uppercase font-semibold">Part Serial</div>
+          {/* Categorized Defects (if Defective) */}
+          {isDefective && predictedDefects.length > 0 && (
+            <div className="p-4 rounded-xl border border-[#E5DFD3] bg-[#FAF8F5] space-y-2.5">
               <div className="text-xs font-semibold text-[#1C1917]">
-                {activeItem.serialNumber}
+                Categorized Defects (Integrated Pipeline)
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Batch Scrubber (if multi-part batch is loaded) */}
-        {isBatch && allItems.length > 1 && (
-          <div className="pt-3 border-t border-[#E6E0D3] space-y-2.5">
-            <div className="flex items-center justify-between text-xs font-mono">
-              <span className="text-[#57534E] font-semibold uppercase text-[11px]">
-                BATCH REEL PARTS ({allItems.length})
-              </span>
-              {batchStats && (
-                <span className="text-[#78716A] text-[11px] tabular-nums">
-                  Yield: {batchStats.passed}/{batchStats.total} Passed
-                  {gateDecision && (
-                    <strong
-                      className={`ml-2 px-2 py-0.5 rounded text-[10px] font-bold ${
-                        gateDecision === "GO"
-                          ? "bg-[#EDF7EE] text-[#166534] border border-[#C6E6C8]"
-                          : "bg-[#FDF2E9] text-[#9A3412] border border-[#FCD6C2]"
-                      }`}
-                    >
-                      {gateDecision}
-                    </strong>
-                  )}
-                </span>
-              )}
-            </div>
-
-            {/* Horizontal pill scrubber */}
-            <div className="flex items-center gap-2 overflow-x-auto pb-1 font-mono text-xs">
-              {allItems.map((item, idx) => {
-                const isItemDefective = item.status === "DEFECTIVE";
-                const isSelected = selectedIndex === idx;
-
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelectIndex(idx)}
-                    aria-label={`Select part ${idx + 1}, status ${item.status}`}
-                    aria-pressed={isSelected}
-                    className={`py-1.5 px-3 rounded-xl border text-xs font-medium flex items-center gap-2 shrink-0 transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
-                      isSelected
-                        ? "bg-[#FFFFFF] border-[#9A3412] text-[#9A3412] shadow-sm font-bold"
-                        : "bg-[#F7F4EC] border-[#E4DDD1] text-[#78716A] hover:text-[#1C1917] hover:bg-[#FFFFFF]"
-                    }`}
-                  >
-                    <span className="text-[10px] text-[#A8A29E] font-bold tabular-nums">
-                      #{idx + 1}
-                    </span>
-                    <span
-                      className={`w-2 h-2 rounded-full ${
-                        isItemDefective ? "bg-[#EA580C]" : "bg-[#16A34A]"
-                      }`}
-                    />
-                    <span>{item.partId}</span>
-                    <span
-                      className={`text-[10px] font-bold ${
-                        isItemDefective ? "text-[#9A3412]" : "text-[#166534]"
-                      }`}
-                    >
-                      {item.status}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 2. Deep Inspector Navigation Tabs */}
-      <div className="px-4 sm:px-6 border-b border-[#E6E0D3] bg-[#FAF8F5] flex items-center justify-between text-xs font-mono">
-        <div role="tablist" aria-label="Inspection display modes" className="flex items-center gap-2">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "visual"}
-            onClick={() => setActiveTab("visual")}
-            className={`py-3 px-3.5 border-b-2 font-medium flex items-center gap-2 transition-[color,border-color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
-              activeTab === "visual"
-                ? "border-[#9A3412] text-[#9A3412] font-bold"
-                : "border-transparent text-[#78716A] hover:text-[#1C1917]"
-            }`}
-          >
-            <Scan aria-hidden="true" className="w-3.5 h-3.5" />
-            <span>Component Optical Capture</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "json"}
-            onClick={() => setActiveTab("json")}
-            className={`py-3 px-3.5 border-b-2 font-medium flex items-center gap-2 transition-[color,border-color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
-              activeTab === "json"
-                ? "border-[#9A3412] text-[#9A3412] font-bold"
-                : "border-transparent text-[#78716A] hover:text-[#1C1917]"
-            }`}
-          >
-            <FileCode2 aria-hidden="true" className="w-3.5 h-3.5" />
-            <span>Returned JSON Payload</span>
-          </button>
-
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === "telemetry"}
-            onClick={() => setActiveTab("telemetry")}
-            className={`py-3 px-3.5 border-b-2 font-medium flex items-center gap-2 transition-[color,border-color] duration-150 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
-              activeTab === "telemetry"
-                ? "border-[#9A3412] text-[#9A3412] font-bold"
-                : "border-transparent text-[#78716A] hover:text-[#1C1917]"
-            }`}
-          >
-            <Activity aria-hidden="true" className="w-3.5 h-3.5" />
-            <span>Telemetry & Protocol</span>
-          </button>
-        </div>
-      </div>
-
-      {/* 3. Tab Contents Stage */}
-      <div className="p-4 sm:p-6 space-y-6">
-        {/* TAB 1: OPTICAL COMPONENT VIEWER */}
-        {activeTab === "visual" && (
-          <div className="space-y-6">
-            <LinenImageViewer item={activeItem} />
-
-            {/* Quick action card underneath optical viewer */}
-            <div className="p-4 sm:p-5 rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] font-mono text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xs">
-              <div className="space-y-1">
-                <div className="text-[#78716A] font-semibold text-[11px] uppercase flex items-center gap-1.5">
-                  <Wrench aria-hidden="true" className="w-3.5 h-3.5 text-[#9A3412]" />
-                  <span>Mandatory Line Action Protocol</span>
-                </div>
-                <div className="text-[#1C1917] text-xs font-medium">
-                  {activeItem.recommendedAction}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab("json")}
-                  className="py-2 px-3.5 rounded-xl border border-[#D8CFBF] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#78350F] text-xs font-semibold flex items-center gap-1.5 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] shadow-xs"
-                >
-                  <FileCode2 aria-hidden="true" className="w-3.5 h-3.5 text-[#9A3412]" />
-                  <span>Inspect Returned JSON</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* TAB 2: RETURNED JSON PAYLOAD VIEWER */}
-        {activeTab === "json" && (
-          <div className="space-y-4">
-            <div className="p-4 rounded-xl border border-[#E5DFD3] bg-[#F7F4EC] text-xs font-mono text-[#57534E] flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <FileCode2 aria-hidden="true" className="w-4 h-4 text-[#9A3412]" />
-                <span>
-                  Exact structured JSON response returned from the backend models.
-                </span>
-              </div>
-              <span className="text-[10px] text-[#166534] font-semibold px-2 py-0.5 rounded bg-[#EDF7EE] border border-[#C6E6C8]">
-                HTTP 200 OK
-              </span>
-            </div>
-
-            <LinenJsonViewer
-              data={rawJson}
-              title={
-                isBatch
-                  ? "Batch Inspection Fusion Payload (JSON)"
-                  : `Model Classification Result - ${activeItem.partId}`
-              }
-              maxHeight="600px"
-            />
-          </div>
-        )}
-
-        {/* TAB 3: TELEMETRY & DIAGNOSTICS */}
-        {activeTab === "telemetry" && (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-stretch">
-            {/* Left: Sensor Tolerance Bars */}
-            <div className="p-5 rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] font-mono text-xs space-y-4 shadow-xs">
-              <div className="flex items-center justify-between pb-3 border-b border-[#E6E0D3]">
-                <div className="flex items-center gap-2">
-                  <Activity aria-hidden="true" className="w-4 h-4 text-[#9A3412]" />
-                  <span className="font-bold text-[#1C1917] uppercase tracking-wider text-xs">
-                    Process Telemetry & Tolerances
-                  </span>
-                </div>
-                <span className="text-[10px] text-[#78716A]">NOMINAL BAND COMPARISON</span>
-              </div>
-
-              <div className="space-y-3">
-                {activeItem.telemetry.map((sensor: SensorTelemetry) => {
-                  const isSensorCritical = sensor.status === "critical";
-                  const isSensorWarning = sensor.status === "warning";
-                  const deltaSign = sensor.delta >= 0 ? "+" : "";
-
+              <div className="flex flex-wrap items-center gap-2">
+                {predictedDefects.map((defect) => {
+                  const score = confidenceScores[defect];
                   return (
                     <div
-                      key={sensor.id}
-                      className="p-3 rounded-xl border border-[#E8E2D6] bg-[#FAF8F5] space-y-2"
+                      key={defect}
+                      className="inline-flex items-center gap-2 px-3 py-1 rounded-lg bg-[#FFFFFF] border border-[#FCA5A5] text-[#991B1B] text-xs font-medium shadow-2xs"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <div className="p-1 rounded bg-[#EFEAE0] text-[#78350F] shrink-0">
-                            {sensor.name.toLowerCase().includes("temp") ? (
-                              <Thermometer aria-hidden="true" className="w-3.5 h-3.5 text-[#C2410C]" />
-                            ) : sensor.name.toLowerCase().includes("press") ? (
-                              <Gauge aria-hidden="true" className="w-3.5 h-3.5 text-[#D97706]" />
-                            ) : sensor.name.toLowerCase().includes("cool") ? (
-                              <Waves aria-hidden="true" className="w-3.5 h-3.5 text-[#0D9488]" />
-                            ) : (
-                              <Zap aria-hidden="true" className="w-3.5 h-3.5 text-[#7C3AED]" />
-                            )}
-                          </div>
-                          <div className="truncate">
-                            <span className="font-semibold text-[#1C1917] block truncate">
-                              {sensor.name}
-                            </span>
-                            <span className="text-[10px] text-[#78716A] tabular-nums">
-                              BAND: {sensor.nominalMin} – {sensor.nominalMax} {sensor.unit}
-                            </span>
-                          </div>
-                        </div>
-
-                        <div className="text-right shrink-0 flex items-center gap-2">
-                          <span className="text-xs font-bold text-[#1C1917] tabular-nums">
-                            {sensor.recordedValue} {sensor.unit}
-                          </span>
-                          <Badge
-                            variant={isSensorCritical ? "defective" : isSensorWarning ? "warning" : "nominal"}
-                            size="sm"
-                          >
-                            {deltaSign}{sensor.delta.toFixed(1)} {sensor.unit}
-                          </Badge>
-                        </div>
-                      </div>
-
-                      {/* Visual band bar */}
-                      <div aria-hidden="true" className="relative h-2 w-full rounded-full bg-[#E5DFD3] overflow-hidden">
-                        <div
-                          className="absolute top-0 bottom-0 bg-[#86EFAC] border-x border-[#4ADE80]"
-                          style={{ left: "30%", width: "40%" }}
-                        />
-                        <div
-                          className={`absolute top-0 bottom-0 w-2 -ml-1 rounded-full shadow-xs ${
-                            isSensorCritical
-                              ? "bg-[#DC2626]"
-                              : isSensorWarning
-                              ? "bg-[#D97706]"
-                              : "bg-[#16A34A]"
-                          }`}
-                          style={{
-                            left: isSensorCritical ? "85%" : isSensorWarning ? "75%" : "50%",
-                          }}
-                        />
-                      </div>
+                      <span className="font-semibold uppercase tracking-wide">
+                        {defect}
+                      </span>
+                      {score && (
+                        <span className="font-mono text-[11px] text-[#7F1D1D] bg-[#FEE2E2] px-1.5 py-0.2 rounded font-semibold">
+                          {score}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
               </div>
             </div>
+          )}
 
-            {/* Right: Diagnostic Ticket & Sign-Off */}
-            <div className="p-5 rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] font-mono text-xs flex flex-col justify-between space-y-4 shadow-xs">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-[#E6E0D3]">
-                  <div className="flex items-center gap-2">
-                    <ClipboardList aria-hidden="true" className="w-4 h-4 text-[#9A3412]" />
-                    <span className="font-bold text-[#1C1917] uppercase tracking-wider text-xs">
-                      Plant Diagnostic Audit Slip
-                    </span>
-                  </div>
-                  <Badge variant={isDefective ? "defective" : "nominal"} size="sm">
-                    {activeItem.severity}
-                  </Badge>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-[10px] text-[#78716A] uppercase font-semibold">
-                    Incident Synthesis:
-                  </div>
-                  <div
-                    className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
-                      isDefective
-                        ? "bg-[#FDF2E9] border-[#FCD6C2] text-[#9A3412]"
-                        : "bg-[#EDF7EE] border-[#C6E6C8] text-[#166534]"
-                    }`}
-                  >
-                    {activeItem.rootCauseSummary}
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <div className="text-[10px] text-[#78716A] uppercase font-semibold">
-                    Action Mandate:
-                  </div>
-                  <div
-                    className={`p-3.5 rounded-xl border text-xs font-semibold ${
-                      isDefective
-                        ? "bg-[#FEF9E7] border-[#FDE68A] text-[#92400E]"
-                        : "bg-[#F5F1E8] border-[#E5DFD3] text-[#78350F]"
-                    }`}
-                  >
-                    {activeItem.recommendedAction}
-                  </div>
-                </div>
+          {/* Key Metrics Grid */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
+            <div className="p-3 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+              <div className="text-[11px] text-[#78716A]">Verdict</div>
+              <div
+                className={`text-sm font-semibold mt-0.5 ${
+                  isDefective ? "text-[#991B1B]" : "text-[#166534]"
+                }`}
+              >
+                {isDefective ? "Defective" : "OK"}
               </div>
+            </div>
 
-              {/* Action Buttons */}
-              <div className="pt-3 border-t border-[#E6E0D3] flex items-center justify-between gap-3">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  aria-label="Print diagnostic audit slip"
-                  className="py-2 px-3.5 rounded-xl border border-[#D8CFBF] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#78716A] hover:text-[#1C1917] text-xs font-medium flex items-center gap-1.5 transition-[background-color,border-color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
-                >
-                  <Printer aria-hidden="true" className="w-3.5 h-3.5" />
-                  <span>Print Slip</span>
-                </button>
+            <div className="p-3 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+              <div className="text-[11px] text-[#78716A]">Confidence</div>
+              <div className="text-sm font-semibold font-mono text-[#1C1917] mt-0.5">
+                {activeItem.confidenceScore.toFixed(1)}%
+              </div>
+            </div>
 
-                <button
-                  type="button"
-                  onClick={() => setAcknowledged(!acknowledged)}
-                  aria-pressed={acknowledged}
-                  aria-label={acknowledged ? "Protocol acknowledged" : "Sign-off protocol"}
-                  className={`py-2 px-4 rounded-xl font-bold text-xs flex items-center gap-2 transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412] ${
-                    acknowledged
-                      ? "bg-[#EDF7EE] text-[#166534] border border-[#C6E6C8]"
-                      : isDefective
-                      ? "bg-[#9A3412] hover:bg-[#7C2D12] text-[#FFFFFF] shadow-sm"
-                      : "bg-[#166534] hover:bg-[#14532D] text-[#FFFFFF] shadow-sm"
-                  }`}
-                >
-                  <FileCheck2 aria-hidden="true" className="w-3.5 h-3.5" />
-                  <span>
-                    {acknowledged
-                      ? "Protocol Acknowledged"
-                      : isDefective
-                      ? "Quarantine & Sign-Off"
-                      : "Acknowledge & Release"}
-                  </span>
-                </button>
+            <div className="p-3 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+              <div className="text-[11px] text-[#78716A]">Human Review</div>
+              <div className="text-sm font-semibold text-[#1C1917] mt-0.5">
+                {isDefective
+                  ? activeItem.requiresHumanReview !== false
+                    ? "Required"
+                    : "Not Required"
+                  : "None"}
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+              <div className="text-[11px] text-[#78716A]">Action</div>
+              <div className="text-sm font-semibold text-[#1C1917] mt-0.5">
+                {isDefective ? "Quarantine & Review" : "Release to Line"}
               </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
+
+      {/* 3. Clean JSON Output */}
+      {rawJson && (
+        <LinenJsonViewer
+          data={rawJson}
+          title={
+            isDefective
+              ? "Integrated Pipeline JSON Output"
+              : "Classification JSON Output"
+          }
+        />
+      )}
     </div>
   );
 }
