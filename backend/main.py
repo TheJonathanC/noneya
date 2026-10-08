@@ -512,8 +512,46 @@ def status_check():
             "telemetry_sim_ready": sim_telemetry_df is not None,
             "gemini_sdk_available": HAS_GENAI,
             "gemini_key_configured": bool(GEMINI_API_KEY),
+            "mongodb_connected": database.is_db_connected,
         },
     }
+
+
+@app.get("/api/db/health")
+async def db_health():
+    """Returns MongoDB connectivity status and document counts."""
+    count = 0
+    if database.is_db_connected:
+        try:
+            count = await database.InspectionTelemetry.count()
+        except Exception:
+            count = 0
+    return {
+        "connected": database.is_db_connected,
+        "database": os.getenv("MONGO_DB_NAME", "qastra"),
+        "telemetry_records_count": count,
+    }
+
+
+@app.get("/api/telemetry/recent")
+async def get_recent_telemetry(limit: int = 20):
+    """Fetches recently persisted telemetry inspection records from MongoDB."""
+    if not database.is_db_connected:
+        return {"connected": False, "records": []}
+    try:
+        docs = await database.InspectionTelemetry.find().sort("-timestamp").limit(limit).to_list()
+        records = []
+        for d in docs:
+            rec = d.model_dump() if hasattr(d, "model_dump") else d.dict()
+            rec["id"] = str(d.id) if hasattr(d, "id") and d.id else None
+            records.append(rec)
+        return {
+            "connected": True,
+            "count": len(records),
+            "records": records,
+        }
+    except Exception as exc:
+        return {"connected": True, "error": str(exc), "records": []}
 
 
 @app.post("/inspect-pilot-batch")

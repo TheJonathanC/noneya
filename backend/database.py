@@ -44,11 +44,12 @@ else:
             return self
 
 
+DEFAULT_MONGO_URI = "mongodb+srv://jonathanscorrea45_db_user:KhPhUDxWgULWcXUT@qastra.ntr5l4c.mongodb.net/?retryWrites=true&w=majority"
+
 async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None) -> bool:
     """
     Initializes Beanie connection with MongoDB.
-    Reads MONGO_URI from argument or environment.
-    If no URI is provided or connection times out, logs an info message and continues.
+    Reads MONGO_URI from argument or environment, falling back to default cluster.
     """
     global db_client, is_db_connected
 
@@ -57,8 +58,8 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
         is_db_connected = False
         return False
 
-    uri = mongo_uri or os.getenv("MONGO_URI") or os.getenv("MONGODB_URL")
-    database_name = db_name or os.getenv("MONGO_DB_NAME", "quality_inspection")
+    uri = mongo_uri or os.getenv("MONGO_URI") or os.getenv("MONGODB_URL") or DEFAULT_MONGO_URI
+    database_name = db_name or os.getenv("MONGO_DB_NAME", "qastra")
 
     if not uri:
         logger.info("MongoDB URI not provided. Database persistence disabled until configured.")
@@ -66,7 +67,7 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
         return False
 
     try:
-        db_client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=4000)
+        db_client = AsyncIOMotorClient(uri, serverSelectionTimeoutMS=8000)
         await init_beanie(database=db_client[database_name], document_models=[InspectionTelemetry])
         is_db_connected = True
         logger.info(f"Connected to MongoDB database '{database_name}' successfully via Beanie.")

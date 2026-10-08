@@ -34,4 +34,7 @@ jobs:
             docker rm fastapi-app || true
             
             # Launch the new container
-            docker run -d --name fastapi-app --restart unless-stopped -p 8000:8000 singularity-api
+            docker run -d --name fastapi-app --restart unless-stopped -p 8000:8000 \
+              -e MONGO_URI="mongodb+srv://jonathanscorrea45_db_user:KhPhUDxWgULWcXUT@qastra.ntr5l4c.mongodb.net/?retryWrites=true&w=majority" \
+              -e MONGO_DB_NAME="qastra" \
+              singularity-api
