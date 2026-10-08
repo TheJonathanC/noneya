@@ -19,10 +19,10 @@ interface TelemetryDeltaPanelProps {
 export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
   const getSensorIcon = (name: string) => {
     const n = name.toLowerCase();
-    if (n.includes("temp")) return <Thermometer className="w-3.5 h-3.5 text-rose-400" />;
-    if (n.includes("press")) return <Gauge className="w-3.5 h-3.5 text-amber-400" />;
-    if (n.includes("cool") || n.includes("flow")) return <Waves className="w-3.5 h-3.5 text-cyan-400" />;
-    return <Zap className="w-3.5 h-3.5 text-indigo-400" />;
+    if (n.includes("temp")) return <Thermometer aria-hidden="true" className="w-3.5 h-3.5 text-rose-400" />;
+    if (n.includes("press")) return <Gauge aria-hidden="true" className="w-3.5 h-3.5 text-amber-400" />;
+    if (n.includes("cool") || n.includes("flow")) return <Waves aria-hidden="true" className="w-3.5 h-3.5 text-cyan-400" />;
+    return <Zap aria-hidden="true" className="w-3.5 h-3.5 text-indigo-400" />;
   };
 
   return (
@@ -30,7 +30,7 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
       <CardHeader className="py-2.5 px-4 bg-[#161922]">
         <div className="flex items-center justify-between w-full">
           <CardTitle className="text-xs text-slate-200 flex items-center gap-2">
-            <Activity className="w-4 h-4 text-cyan-400" />
+            <Activity aria-hidden="true" className="w-4 h-4 text-cyan-400" />
             <span>Process Telemetry & Tolerances</span>
           </CardTitle>
           <span className="text-[10px] font-mono text-slate-500">
@@ -73,7 +73,7 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
                     <span className="font-semibold text-slate-200 block truncate">
                       {sensor.name}
                     </span>
-                    <span className="text-[10px] text-slate-500">
+                    <span className="text-[10px] text-slate-500 tabular-nums">
                       BAND: {sensor.nominalMin} – {sensor.nominalMax} {sensor.unit}
                     </span>
                   </div>
@@ -82,7 +82,7 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
                 {/* Right: Live Value & Delta Tag */}
                 <div className="text-right shrink-0 flex items-center gap-2">
                   <div>
-                    <span className="text-xs font-bold text-slate-100">
+                    <span className="text-xs font-bold text-slate-100 tabular-nums">
                       {sensor.recordedValue}
                       <span className="text-[10px] text-slate-400 ml-0.5">{sensor.unit}</span>
                     </span>
@@ -91,6 +91,7 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
                   <Badge
                     variant={isCritical ? "defective" : isWarning ? "warning" : "nominal"}
                     size="sm"
+                    className="tabular-nums"
                   >
                     {deltaSign}
                     {sensor.delta.toFixed(1)} {sensor.unit}
@@ -100,7 +101,7 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
 
               {/* Tolerance Visual Delta Bar */}
               <div className="space-y-1">
-                <div className="relative h-2 w-full rounded-full bg-[#181C28] overflow-hidden">
+                <div aria-hidden="true" className="relative h-2 w-full rounded-full bg-[#181C28] overflow-hidden">
                   {/* Calibrated Nominal Green Band Zone */}
                   <div
                     className="absolute top-0 bottom-0 bg-emerald-500/25 border-x border-emerald-500/50"
@@ -123,7 +124,7 @@ export function TelemetryDeltaPanel({ telemetry }: TelemetryDeltaPanelProps) {
                   />
                 </div>
 
-                <div className="flex justify-between text-[9px] text-slate-500">
+                <div className="flex justify-between text-[9px] text-slate-500 tabular-nums">
                   <span>LO TGT: {sensor.nominalMin}</span>
                   <span className="text-slate-400 font-bold">NOM: {sensor.nominalTarget}</span>
                   <span>HI TGT: {sensor.nominalMax}</span>

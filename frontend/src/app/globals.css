@@ -3,6 +3,8 @@
 :root {
   --background: #0a0b0e;
   --foreground: #ededed;
+  --ease-out-quad: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out-smooth: cubic-bezier(0.77, 0, 0.175, 1);
 }
 
 @theme inline {
@@ -15,7 +17,7 @@
 body {
   background: #0a0b0e;
   color: #ededed;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow-x: hidden;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11", "tnum";
 }

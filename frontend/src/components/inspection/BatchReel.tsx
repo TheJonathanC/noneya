@@ -80,18 +80,27 @@ export function BatchReel({
       <div className="p-4 border-b border-[#1F2430] bg-[#12141C]">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1.5 text-xs font-mono font-semibold uppercase text-slate-300">
-            <Layers className="w-3.5 h-3.5 text-cyan-400" />
+            <Layers aria-hidden="true" className="w-3.5 h-3.5 text-cyan-400" />
             <span>Component Intake Zone</span>
           </div>
           <span className="text-[10px] font-mono text-slate-500">OPTICAL INTAKE</span>
         </div>
 
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Upload component capture or browse optical sensor feeds"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           onClick={() => fileInputRef.current?.click()}
-          className={`border border-dashed rounded-lg p-3 text-center cursor-pointer transition-all duration-150 flex flex-col items-center justify-center gap-1.5 ${
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              fileInputRef.current?.click();
+            }
+          }}
+          className={`border border-dashed rounded-lg p-3 text-center cursor-pointer transition-[border-color,background-color,transform] duration-150 active:scale-[0.99] flex flex-col items-center justify-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#12141C] ${
             isDragging
               ? "border-cyan-400 bg-cyan-950/30 scale-[1.01]"
               : "border-[#262D3D] hover:border-cyan-500/50 bg-[#161922] hover:bg-[#1A1E29]"
@@ -102,11 +111,12 @@ export function BatchReel({
             type="file"
             multiple
             accept="image/*"
+            aria-label="Optical component image file input"
             onChange={handleFileInputChange}
             className="hidden"
           />
           <div className="flex items-center gap-2">
-            <Upload className="w-4 h-4 text-cyan-400" />
+            <Upload aria-hidden="true" className="w-4 h-4 text-cyan-400" />
             <span className="text-xs font-mono font-medium text-slate-200">
               Upload component capture or <span className="text-cyan-400 underline">browse</span>
             </span>
@@ -123,7 +133,7 @@ export function BatchReel({
           <span className="font-semibold text-slate-200 uppercase tracking-wider text-[11px]">
             Part Inspection Queue ({items.length})
           </span>
-          {isLoading && <RefreshCw className="w-3 h-3 text-cyan-400 animate-spin" />}
+          {isLoading && <RefreshCw aria-hidden="true" className="w-3 h-3 text-cyan-400 animate-spin" />}
         </div>
 
         <div className="flex items-center gap-2">
@@ -131,20 +141,22 @@ export function BatchReel({
             <button
               onClick={onClearQueue}
               type="button"
-              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-colors px-2 py-0.5 rounded border border-[#242A3B] bg-[#141722] hover:border-rose-900/60 cursor-pointer"
+              aria-label="Clear all components from the inspection queue"
+              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-rose-400 transition-[color,border-color,background-color,transform] duration-150 active:scale-[0.97] px-2 py-0.5 rounded border border-[#242A3B] bg-[#141722] hover:border-rose-900/60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0C0E14]"
               title="Clear all components from the inspection queue"
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash2 aria-hidden="true" className="w-3 h-3" />
               <span>Clear Queue</span>
             </button>
           ) : (
             <button
               onClick={onResetQueue}
               type="button"
-              className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 transition-colors px-2 py-0.5 rounded border border-cyan-800/40 bg-cyan-950/20 cursor-pointer"
+              aria-label="Restore default sample lot"
+              className="flex items-center gap-1 text-[11px] text-cyan-400 hover:text-cyan-300 transition-[color,border-color,background-color,transform] duration-150 active:scale-[0.97] px-2 py-0.5 rounded border border-cyan-800/40 bg-cyan-950/20 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0C0E14]"
               title="Restore default sample lot"
             >
-              <RotateCcw className="w-3 h-3" />
+              <RotateCcw aria-hidden="true" className="w-3 h-3" />
               <span>Restore Lot</span>
             </button>
           )}
@@ -154,7 +166,7 @@ export function BatchReel({
       {/* Keyboard Hint Ribbon */}
       <div className="px-4 py-1.5 bg-[#0A0C10] border-b border-[#181C26] flex items-center justify-between text-[10px] font-mono text-slate-500">
         <div className="flex items-center gap-1.5">
-          <Keyboard className="w-3 h-3 text-slate-500" />
+          <Keyboard aria-hidden="true" className="w-3 h-3 text-slate-500" />
           <span>[↑] [↓] / [←] [→] to scrub</span>
         </div>
         <span>Hover part to remove [×]</span>
@@ -169,8 +181,18 @@ export function BatchReel({
           return (
             <div
               key={item.id}
+              role="button"
+              tabIndex={0}
+              aria-pressed={isSelected}
+              aria-label={`Select part ${item.partId}, status ${item.status}, ${item.defectType}`}
               onClick={() => onSelectItem(item)}
-              className={`group relative rounded-lg border p-2.5 transition-all duration-150 cursor-pointer select-none font-mono ${
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  onSelectItem(item);
+                }
+              }}
+              className={`group relative rounded-lg border p-2.5 transition-[background-color,border-color,box-shadow,transform] duration-150 active:scale-[0.98] cursor-pointer select-none font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#0E1017] ${
                 isSelected
                   ? "bg-[#181C26] border-cyan-500/70 shadow-lg shadow-cyan-950/20"
                   : "bg-[#12141C] border-[#1F2430] hover:border-[#2D3547] hover:bg-[#161924]"
@@ -178,12 +200,12 @@ export function BatchReel({
             >
               {/* Selected Left Indicator Strip */}
               {isSelected && (
-                <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-400 rounded-l-lg" />
+                <div aria-hidden="true" className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-400 rounded-l-lg" />
               )}
 
               <div className="flex items-center gap-2.5">
                 {/* Index Number */}
-                <div className="text-[10px] font-bold text-slate-500 w-4 text-right shrink-0">
+                <div className="text-[10px] font-bold text-slate-500 w-4 text-right shrink-0 tabular-nums">
                   {String(index + 1).padStart(2, "0")}
                 </div>
 
@@ -193,11 +215,12 @@ export function BatchReel({
                     src={item.rawImageUrl}
                     alt={item.partId}
                     fill
+                    sizes="52px"
                     className="object-cover"
                     unoptimized
                   />
                   {isDefective && (
-                    <div className="absolute inset-0 bg-rose-500/15 pointer-events-none" />
+                    <div aria-hidden="true" className="absolute inset-0 bg-rose-500/15 pointer-events-none" />
                   )}
                 </div>
 
@@ -224,7 +247,7 @@ export function BatchReel({
                         <span className="text-emerald-400">Nominal Spec</span>
                       )}
                     </span>
-                    <span className="text-slate-500 font-medium">
+                    <span className="text-slate-500 font-medium tabular-nums">
                       {item.confidenceScore.toFixed(1)}%
                     </span>
                   </div>
@@ -238,14 +261,16 @@ export function BatchReel({
                       onRemoveItem(item.id);
                     }}
                     type="button"
-                    className="opacity-0 group-hover:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-all cursor-pointer"
+                    aria-label={`Remove ${item.partId} from queue`}
+                    className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 p-1 text-slate-500 hover:text-rose-400 hover:bg-rose-950/40 rounded transition-[opacity,color,background-color,transform] duration-150 active:scale-[0.95] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                     title={`Remove ${item.partId} from queue`}
                   >
-                    <X className="w-3.5 h-3.5" />
+                    <X aria-hidden="true" className="w-3.5 h-3.5" />
                   </button>
 
                   <ChevronRight
-                    className={`w-4 h-4 transition-transform ${
+                    aria-hidden="true"
+                    className={`w-4 h-4 transition-transform duration-150 ${
                       isSelected ? "text-cyan-400 translate-x-0.5" : "text-slate-600 group-hover:text-slate-400"
                     }`}
                   />
@@ -257,19 +282,20 @@ export function BatchReel({
 
         {items.length === 0 && (
           <div className="p-8 text-center text-slate-500 font-mono text-xs flex flex-col items-center justify-center gap-3 border border-dashed border-[#1F2430] rounded-xl bg-[#0B0D12]">
-            <FileImage className="w-8 h-8 text-slate-600" />
+            <FileImage aria-hidden="true" className="w-8 h-8 text-slate-600" />
             <div className="space-y-1">
-              <span className="text-slate-300 font-semibold block">Inspection Queue Empty</span>
-              <span className="text-[11px] text-slate-500 block">
+              <span className="text-slate-300 font-semibold block text-balance">Inspection Queue Empty</span>
+              <span className="text-[11px] text-slate-500 block text-balance">
                 Drop captures above or restore the calibrated sample lot.
               </span>
             </div>
             <button
               onClick={onResetQueue}
               type="button"
-              className="mt-1 px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/50 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              aria-label="Restore sample lot with 5 parts"
+              className="mt-1 px-3 py-1.5 rounded-lg border border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/50 text-xs font-semibold flex items-center gap-1.5 transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B0D12]"
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw aria-hidden="true" className="w-3.5 h-3.5" />
               <span>Restore Sample Lot (5 Parts)</span>
             </button>
           </div>

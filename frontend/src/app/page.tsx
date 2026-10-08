@@ -24,17 +24,23 @@ export default function QualityInspectionDashboard() {
   const selectedItem = items[selectedIndex] || items[0] || null;
   const stats = calculateStationStats(items);
 
+  // Screen reader announcer message for batch operations
+  const [announcement, setAnnouncement] = useState("");
+
   // Run or refresh inspection batch
   const handleRunBatch = useCallback(async () => {
     setIsRunning(true);
+    setAnnouncement(`Initiating inspection batch with sample size of ${sampleSize} parts.`);
     try {
       const result = await runBatchInspection([], sampleSize, {
         useMockFallback,
       });
       setItems(result.items);
       setSelectedIndex(0);
+      setAnnouncement(`Batch scan complete. Inspected ${result.items.length} parts.`);
     } catch (err) {
       console.error("Batch inspection failed:", err);
+      setAnnouncement("Batch inspection encountered an error.");
     } finally {
       setIsRunning(false);
     }
@@ -44,14 +50,17 @@ export default function QualityInspectionDashboard() {
   const handleUploadFiles = useCallback(
     async (files: File[]) => {
       setIsRunning(true);
+      setAnnouncement(`Processing ${files.length} uploaded component captures.`);
       try {
         const result = await runBatchInspection(files, Math.max(files.length, sampleSize), {
           useMockFallback,
         });
         setItems(result.items);
         setSelectedIndex(0);
+        setAnnouncement(`Upload analysis complete. ${result.items.length} components evaluated.`);
       } catch (err) {
         console.error("Upload inspection failed:", err);
+        setAnnouncement("Upload analysis encountered an error.");
       } finally {
         setIsRunning(false);
       }
@@ -62,6 +71,10 @@ export default function QualityInspectionDashboard() {
   // Remove individual item from the inspection queue
   const handleRemoveItem = useCallback((id: string) => {
     setItems((prev) => {
+      const target = prev.find((item) => item.id === id);
+      if (target) {
+        setAnnouncement(`Removed part ${target.partId} from queue.`);
+      }
       const nextItems = prev.filter((item) => item.id !== id);
       return nextItems;
     });
@@ -72,12 +85,14 @@ export default function QualityInspectionDashboard() {
   const handleClearQueue = useCallback(() => {
     setItems([]);
     setSelectedIndex(0);
+    setAnnouncement("Inspection queue cleared.");
   }, []);
 
   // Restore default sample lot
   const handleResetQueue = useCallback(() => {
     setItems(MOCK_INSPECTION_ITEMS.slice(0, sampleSize));
     setSelectedIndex(0);
+    setAnnouncement(`Sample lot restored with ${sampleSize} parts.`);
   }, [sampleSize]);
 
   // Micro-interaction: Keyboard frame scrubbing
@@ -106,6 +121,19 @@ export default function QualityInspectionDashboard() {
 
   return (
     <div className="min-h-screen bg-[#0A0B0E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+      {/* Skip Navigation Link for Keyboard Accessibility */}
+      <a
+        href="#main-terminal-content"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 z-50 px-3 py-1.5 bg-cyan-500 text-[#090C12] font-mono text-xs font-bold rounded shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+      >
+        Skip to inspection terminal
+      </a>
+
+      {/* Screen Reader Live Region for Async Batch Updates */}
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </div>
+
       {/* 1. Operational Header */}
       <StationHeader
         stats={stats}
@@ -118,9 +146,9 @@ export default function QualityInspectionDashboard() {
       />
 
       {/* Main Terminal Workspace Layout */}
-      <main className="flex-1 max-w-[1800px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden">
+      <main id="main-terminal-content" className="flex-1 max-w-[1800px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden">
         {/* 2. Part Inspection Queue (~35% width) */}
-        <section className="w-full lg:w-[35%] xl:w-[32%] min-h-[400px] lg:min-h-0 flex flex-col shrink-0">
+        <section aria-label="Component queue" className="w-full lg:w-[35%] xl:w-[32%] min-h-[400px] lg:min-h-0 flex flex-col shrink-0">
           <BatchReel
             items={items}
             selectedItem={selectedItem}
@@ -137,7 +165,7 @@ export default function QualityInspectionDashboard() {
         </section>
 
         {/* 3. Deep Diagnostics Stage (~65% width) */}
-        <section className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#0A0B0E]">
+        <section aria-label="Component diagnostics stage" className="flex-1 p-4 sm:p-6 overflow-y-auto space-y-6 bg-[#0A0B0E]">
           {selectedItem ? (
             <>
               {/* Visual Anomaly Reticle with Split Curtain Slider */}
@@ -161,13 +189,13 @@ export default function QualityInspectionDashboard() {
           ) : (
             <div className="h-full min-h-[480px] flex flex-col items-center justify-center p-12 text-slate-500 font-mono text-xs border border-dashed border-[#1F2430] rounded-2xl bg-[#0D0F16] text-center gap-4">
               <div className="p-4 rounded-full bg-[#141724] border border-[#23293D] text-cyan-400">
-                <Scan className="w-8 h-8" />
+                <Scan aria-hidden="true" className="w-8 h-8" />
               </div>
               <div className="space-y-1">
-                <div className="text-sm font-semibold text-slate-200">
+                <div className="text-sm font-semibold text-slate-200 text-balance">
                   No Component Active for Diagnostic Stage
                 </div>
-                <p className="text-slate-500 max-w-md text-xs">
+                <p className="text-slate-500 max-w-md text-xs text-balance">
                   The inspection queue is currently empty. Drop component captures into the intake
                   zone or restore the sample batch.
                 </p>
@@ -175,9 +203,10 @@ export default function QualityInspectionDashboard() {
               <button
                 onClick={handleResetQueue}
                 type="button"
-                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/50 text-xs font-semibold flex items-center gap-2 transition-colors cursor-pointer"
+                aria-label={`Restore sample lot with ${sampleSize} parts`}
+                className="px-4 py-2 rounded-lg border border-cyan-500/40 bg-cyan-950/30 text-cyan-300 hover:bg-cyan-950/50 text-xs font-semibold flex items-center gap-2 transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#0D0F16]"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
+                <RotateCcw aria-hidden="true" className="w-3.5 h-3.5" />
                 <span>Restore Sample Lot ({sampleSize} Parts)</span>
               </button>
             </div>

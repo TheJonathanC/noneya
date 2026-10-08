@@ -39,7 +39,7 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
       {/* Header: Plant Audit Slip Header */}
       <CardHeader className="py-2.5 px-4 bg-[#161922] flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <ClipboardList className="w-4 h-4 text-cyan-400" />
+          <ClipboardList aria-hidden="true" className="w-4 h-4 text-cyan-400" />
           <CardTitle className="text-xs text-slate-200">
             Plant Diagnostic Audit Ticket
           </CardTitle>
@@ -59,7 +59,7 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 p-2.5 rounded-lg bg-[#0E1017] border border-[#1E2330] text-[11px]">
             <div>
               <span className="text-slate-500 block text-[9px] uppercase">Inspection Ticket</span>
-              <span className="font-bold text-slate-200">{item.id}</span>
+              <span className="font-bold text-slate-200 tabular-nums">{item.id}</span>
             </div>
             <div>
               <span className="text-slate-500 block text-[9px] uppercase">Operator Assigned</span>
@@ -67,18 +67,18 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
             </div>
             <div>
               <span className="text-slate-500 block text-[9px] uppercase">Cycle Latency</span>
-              <span className="text-slate-300">{item.metadata.cycleDurationMs} ms</span>
+              <span className="text-slate-300 tabular-nums">{item.metadata.cycleDurationMs} ms</span>
             </div>
             <div>
               <span className="text-slate-500 block text-[9px] uppercase">Timestamp</span>
-              <span className="text-slate-300">{item.timestamp}</span>
+              <span className="text-slate-300 tabular-nums">{item.timestamp}</span>
             </div>
           </div>
 
           {/* Root Cause Summary */}
           <div className="space-y-1.5">
             <div className="text-[10px] uppercase font-semibold text-slate-400 flex items-center gap-1.5">
-              <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+              <ShieldAlert aria-hidden="true" className="w-3.5 h-3.5 text-amber-400" />
               <span>Diagnostic Root Cause Synthesis</span>
             </div>
             <div
@@ -95,7 +95,7 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
           {/* Prominent Action Callout Box */}
           <div className="space-y-1.5">
             <div className="text-[10px] uppercase font-semibold text-slate-400 flex items-center gap-1.5">
-              <Wrench className="w-3.5 h-3.5 text-cyan-400" />
+              <Wrench aria-hidden="true" className="w-3.5 h-3.5 text-cyan-400" />
               <span>Mandatory Line Action Protocol</span>
             </div>
             <div
@@ -106,9 +106,9 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
               }`}
             >
               {isDefective ? (
-                <AlertOctagon className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                <AlertOctagon aria-hidden="true" className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
               ) : (
-                <CheckCircle2 className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
+                <CheckCircle2 aria-hidden="true" className="w-5 h-5 text-cyan-400 shrink-0 mt-0.5" />
               )}
               <div className="space-y-1">
                 <div className="text-[11px] uppercase tracking-wider text-amber-400 font-bold">
@@ -126,9 +126,10 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
             <button
               onClick={() => window.print()}
               type="button"
-              className="px-2.5 py-1.5 rounded border border-[#2A3142] bg-[#161924] hover:bg-[#1E2333] text-slate-300 flex items-center gap-1.5 transition-colors cursor-pointer text-xs"
+              aria-label="Print diagnostic audit slip"
+              className="px-2.5 py-1.5 rounded border border-[#2A3142] bg-[#161924] hover:bg-[#1E2333] text-slate-300 flex items-center gap-1.5 transition-[background-color,border-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-1 focus-visible:ring-offset-[#12141C]"
             >
-              <Printer className="w-3.5 h-3.5" />
+              <Printer aria-hidden="true" className="w-3.5 h-3.5" />
               <span>Print Slip</span>
             </button>
           </div>
@@ -136,7 +137,15 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
           <button
             onClick={() => setAcknowledged(!acknowledged)}
             type="button"
-            className={`px-3.5 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 transition-all cursor-pointer ${
+            aria-pressed={acknowledged}
+            aria-label={
+              acknowledged
+                ? "Protocol acknowledged"
+                : isDefective
+                ? "Quarantine part and sign-off protocol"
+                : "Acknowledge part and release protocol"
+            }
+            className={`px-3.5 py-1.5 rounded-lg font-bold text-xs flex items-center gap-2 transition-[background-color,border-color,color,box-shadow,transform] duration-150 active:scale-[0.97] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-[#12141C] ${
               acknowledged
                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
                 : isDefective
@@ -144,7 +153,7 @@ export function RootCauseDossier({ item }: RootCauseDossierProps) {
                 : "bg-cyan-600 hover:bg-cyan-500 text-white shadow-lg shadow-cyan-950/50"
             }`}
           >
-            <FileCheck2 className="w-3.5 h-3.5" />
+            <FileCheck2 aria-hidden="true" className="w-3.5 h-3.5" />
             <span>
               {acknowledged ? "Protocol Acknowledged" : isDefective ? "Quarantine & Sign-Off" : "Acknowledge & Release"}
             </span>

@@ -35,7 +35,7 @@ export function Badge({
 
   const dotColors = {
     nominal: "bg-emerald-400",
-    defective: "bg-rose-400 animate-pulse",
+    defective: "bg-rose-400 animate-pulse motion-reduce:animate-none",
     warning: "bg-amber-400",
     cyan: "bg-cyan-400",
     neutral: "bg-slate-400",
@@ -51,7 +51,7 @@ export function Badge({
       )}
       {...props}
     >
-      {dot && <span className={clsx("w-1.5 h-1.5 rounded-full shrink-0", dotColors)} />}
+      {dot && <span aria-hidden="true" className={clsx("w-1.5 h-1.5 rounded-full shrink-0", dotColors)} />}
       {children}
     </div>
   );

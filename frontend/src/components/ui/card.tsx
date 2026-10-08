@@ -31,12 +31,12 @@ export function Card({
       {...props}
     >
       {technicalCorners && (
-        <>
+        <div aria-hidden="true">
           <div className="absolute top-0 left-0 w-2 h-2 border-t-2 border-l-2 border-slate-600 pointer-events-none" />
           <div className="absolute top-0 right-0 w-2 h-2 border-t-2 border-r-2 border-slate-600 pointer-events-none" />
           <div className="absolute bottom-0 left-0 w-2 h-2 border-b-2 border-l-2 border-slate-600 pointer-events-none" />
           <div className="absolute bottom-0 right-0 w-2 h-2 border-b-2 border-r-2 border-slate-600 pointer-events-none" />
-        </>
+        </div>
       )}
       {children}
     </div>
@@ -69,7 +69,7 @@ export function CardTitle({
   return (
     <h3
       className={clsx(
-        "text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2",
+        "text-xs font-semibold uppercase tracking-wider text-slate-300 font-mono flex items-center gap-2 text-balance",
         className
       )}
       {...props}
