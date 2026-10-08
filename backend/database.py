@@ -54,7 +54,7 @@ async def init_db(mongo_uri: Optional[str] = None, db_name: Optional[str] = None
     Initializes Beanie connection with MongoDB.
     Reads MONGO_URI from argument or environment, falling back to default cluster.
     """
-    global db_client, is_db_connected
+    global db_client, is_db_connected, db_error
 
     if not HAS_BEANIE:
         db_error = f"Beanie/Motor not imported: {BEANIE_IMPORT_ERROR}"
