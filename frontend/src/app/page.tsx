@@ -7,7 +7,6 @@ import { LinenResults } from "@/components/linen/LinenResults";
 import {
   inspectSinglePhoto,
   inspectBatchPhotos,
-  createSampleFile,
   InspectionError,
 } from "@/lib/api";
 import { InspectionItem } from "@/lib/inspection-adapter";
@@ -57,49 +56,6 @@ export default function QualityInspectionDashboard() {
     setErrorState(null);
   }, []);
 
-  // Load sample presets for 1-click testing
-  const handleLoadPreset = useCallback((preset: "nominal" | "defective" | "pilot_5") => {
-    setErrorState(null);
-    if (preset === "nominal") {
-      const file = createSampleFile("nominal", 1);
-      const item: StagedItem = {
-        id: `sample-clean-${Date.now()}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        presetType: "nominal",
-      };
-      setStagedItems([item]);
-      setMode("single");
-    } else if (preset === "defective") {
-      const file = createSampleFile("defective", 1);
-      const item: StagedItem = {
-        id: `sample-defect-${Date.now()}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        presetType: "defective",
-      };
-      setStagedItems([item]);
-      setMode("single");
-    } else if (preset === "pilot_5") {
-      const files = [
-        createSampleFile("defective", 1),
-        createSampleFile("defective", 2),
-        createSampleFile("nominal", 3),
-        createSampleFile("nominal", 4),
-        createSampleFile("nominal", 5),
-      ];
-      const items: StagedItem[] = files.map((file, idx) => ({
-        id: `batch-${Date.now()}-${idx}`,
-        file,
-        previewUrl: URL.createObjectURL(file),
-        presetType: idx < 2 ? "defective" : "nominal",
-      }));
-      setStagedItems(items);
-      setMode("batch");
-    }
-    setActiveStep(1);
-  }, []);
-
   // Primary Dispatch Flow: Call backend classification and integrated pipeline if defective
   const handleDispatch = useCallback(async () => {
     if (stagedItems.length === 0) return;
@@ -141,7 +97,7 @@ export default function QualityInspectionDashboard() {
               message:
                 err instanceof Error
                   ? err.message
-                  : "An unexpected error occurred communicating with inspection pipeline.",
+                  : "Failed to communicate with diagnostic backend service.",
               code: "DISPATCH_FAILED",
               retryable: true,
               timestamp: new Date().toLocaleTimeString(),
@@ -172,11 +128,6 @@ export default function QualityInspectionDashboard() {
     setErrorState(null);
     setActiveStep(1);
   }, []);
-
-  // Quick-start sample when in idle state
-  const handleQuickStart = useCallback(() => {
-    handleLoadPreset("nominal");
-  }, [handleLoadPreset]);
 
   // Arrow key navigation between batch parts
   useEffect(() => {
@@ -210,19 +161,19 @@ export default function QualityInspectionDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#FAF8F5] text-[#1C1917] flex flex-col font-sans selection:bg-[#F3EFE6] selection:text-[#1C1917]">
+    <div className="min-h-screen lg:h-screen flex flex-col bg-[#FAF8F5] text-[#1C1917] font-sans selection:bg-[#F3EFE6] selection:text-[#1C1917] lg:overflow-hidden">
       {/* Sleek Minimalist Header */}
       <LinenHeader
         onResetAll={handleResetAll}
         hasActiveInspection={resultItems.length > 0 || stagedItems.length > 0}
       />
 
-      {/* Main Clean Workspace */}
-      <main className="flex-1 max-w-[1600px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden">
-        {/* Left Side (~36% width): Intake Station */}
+      {/* Main Clean Workspace: Locked Left Station, Independently Scrolling Right Area */}
+      <main className="flex-1 max-w-[1600px] w-full mx-auto flex flex-col lg:flex-row min-h-0 lg:overflow-hidden">
+        {/* Left Side: Intake Station (Locked layout) */}
         <section
           aria-label="Component intake"
-          className="w-full lg:w-[38%] xl:w-[35%] min-h-[420px] lg:min-h-0 flex flex-col shrink-0"
+          className="w-full lg:w-[380px] xl:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-[#EAE4D7] bg-[#FAF8F5] lg:h-full flex flex-col overflow-hidden"
         >
           <LinenIntake
             mode={mode}
@@ -236,17 +187,16 @@ export default function QualityInspectionDashboard() {
             onAddFiles={handleAddFiles}
             onRemoveItem={handleRemoveStagedItem}
             onClearQueue={handleClearStagedQueue}
-            onLoadPreset={handleLoadPreset}
             isDispatching={isDispatching}
             onDispatch={handleDispatch}
             activeStep={activeStep}
           />
         </section>
 
-        {/* Right Side (~64% width): Inspection Report & JSON Output */}
+        {/* Right Side: Inspection Report & JSON Output (Scrolls freely) */}
         <section
           aria-label="Inspection results and report"
-          className="flex-1 flex flex-col min-h-0 bg-[#FAF8F5]"
+          className="flex-1 min-w-0 h-full overflow-y-auto bg-[#FAF8F5]"
         >
           <LinenResults
             activeItem={activeItem}
@@ -258,7 +208,6 @@ export default function QualityInspectionDashboard() {
             isBatch={mode === "batch" || resultItems.length > 1}
             gateDecision={gateDecision}
             batchStats={resultItems.length > 0 ? batchStats : undefined}
-            onLoadQuickSample={handleQuickStart}
             errorState={errorState}
             onRetry={handleRetryDispatch}
             onDismissError={handleDismissError}

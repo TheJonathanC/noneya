@@ -25,7 +25,6 @@ interface LinenIntakeProps {
   onAddFiles: (files: File[]) => void;
   onRemoveItem: (id: string) => void;
   onClearQueue: () => void;
-  onLoadPreset: (preset: "nominal" | "defective" | "pilot_5") => void;
   isDispatching: boolean;
   onDispatch: () => void;
   activeStep: 1 | 2 | 3;
@@ -38,7 +37,6 @@ export function LinenIntake({
   onAddFiles,
   onRemoveItem,
   onClearQueue,
-  onLoadPreset,
   isDispatching,
   onDispatch,
 }: LinenIntakeProps) {
@@ -104,7 +102,7 @@ export function LinenIntake({
   return (
     <div className="flex flex-col h-full bg-[#FAF8F5] border-r border-[#EAE4D7]">
       {/* Top Section: Mode Switcher */}
-      <div className="p-4 sm:p-5 border-b border-[#EAE4D7] space-y-3">
+      <div className="p-4 sm:p-5 border-b border-[#EAE4D7] space-y-3 shrink-0">
         <div className="flex items-center justify-between">
           <span className="font-semibold text-xs tracking-tight text-[#1C1917]">
             Upload Component
@@ -219,31 +217,10 @@ export function LinenIntake({
             </button>
           </div>
         )}
-
-        {/* 1-Click Sample Button */}
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-[11px] text-[#78716A]">Try with sample:</span>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => onLoadPreset("nominal")}
-              className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#FFFFFF] hover:bg-[#F3EFE6] border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] transition-all cursor-pointer"
-            >
-              Clean Part
-            </button>
-            <button
-              type="button"
-              onClick={() => onLoadPreset("defective")}
-              className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-[#FFFFFF] hover:bg-[#F3EFE6] border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] transition-all cursor-pointer"
-            >
-              Defective Part
-            </button>
-          </div>
-        </div>
       </div>
 
       {/* Staged Items List */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
+      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
         {stagedItems.length > 0 && (
           <div className="flex items-center justify-between pb-1">
             <span className="text-[11px] font-medium text-[#78716A]">
@@ -302,14 +279,14 @@ export function LinenIntake({
           <div className="py-10 text-center text-[#78716A] text-xs flex flex-col items-center justify-center gap-2 border border-dashed border-[#E5DFD3] rounded-2xl bg-[#FFFFFF]">
             <FileImage aria-hidden="true" className="w-7 h-7 text-[#D6CEBF]" />
             <p className="text-[11px] text-[#78716A]">
-              Drop an image or select a sample above.
+              No images queued yet. Drop an image or browse above.
             </p>
           </div>
         )}
       </div>
 
       {/* Bottom Dispatch Footer */}
-      <div className="p-4 sm:p-5 border-t border-[#EAE4D7] bg-[#FAF8F5]">
+      <div className="p-4 sm:p-5 border-t border-[#EAE4D7] bg-[#FAF8F5] shrink-0">
         <button
           type="button"
           onClick={onDispatch}

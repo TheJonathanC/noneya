@@ -7,15 +7,17 @@ interface LinenJsonViewerProps {
   data: Record<string, unknown> | null;
   title?: string;
   maxHeight?: string;
+  defaultExpanded?: boolean;
 }
 
 export function LinenJsonViewer({
   data,
   title = "JSON Output",
   maxHeight = "460px",
+  defaultExpanded = false,
 }: LinenJsonViewerProps) {
   const [copied, setCopied] = useState(false);
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [isExpanded, setIsExpanded] = useState(defaultExpanded);
 
   const jsonString = useMemo(() => {
     if (!data) return "";
@@ -98,20 +100,35 @@ export function LinenJsonViewer({
   return (
     <div className="rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-xs text-xs">
       {/* Top Header Bar */}
-      <div className="px-4 py-3 bg-[#FAF8F5] border-b border-[#EAE4D7] flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-[#EFE9DD] text-[#78350F]">
+      <div
+        className={`px-4 py-3 bg-[#FAF8F5] flex items-center justify-between gap-3 ${
+          isExpanded ? "border-b border-[#EAE4D7]" : ""
+        }`}
+      >
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="flex items-center gap-2.5 text-left group cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1C1917] rounded-lg p-0.5 -m-0.5"
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? "Collapse JSON viewer" : "Expand JSON viewer"}
+        >
+          <div className="p-1.5 rounded-lg bg-[#EFE9DD] text-[#78350F] group-hover:bg-[#E5DFD3] transition-colors">
             <Code2 aria-hidden="true" className="w-4 h-4" />
           </div>
           <div>
-            <span className="font-semibold text-[#1C1917] tracking-tight text-xs block">
-              {title}
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-[#1C1917] tracking-tight text-xs">
+                {title}
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[#EAE4D7] text-[#57534E] font-medium">
+                {isExpanded ? "Expanded" : "Hidden"}
+              </span>
+            </div>
             <span className="text-[11px] text-[#78716A] font-mono">
               {lineCount} lines • {(byteSize / 1024).toFixed(1)} KB
             </span>
           </div>
-        </div>
+        </button>
 
         {/* Clean Action Buttons */}
         <div className="flex items-center gap-1.5">
