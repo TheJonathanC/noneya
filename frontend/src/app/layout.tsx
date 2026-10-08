@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Precision QC Inspection Terminal | Line 04 Casting Cell",
-  description: "Automated optical casting quality assurance and anomaly detection terminal.",
+  title: "Aura Quality Lab | Optical Casting Inspection & Diagnostics",
+  description: "Precision casting component quality assurance and anomaly detection studio.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-[#FAF8F5] text-[#1C1917]">{children}</body>
     </html>
   );
 }

@@ -1,17 +1,15 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { FlowHeader } from "@/components/flow/FlowHeader";
-import { IntakePanel, StagedItem } from "@/components/flow/IntakePanel";
-import { ResultsStage } from "@/components/flow/ResultsStage";
+import { LinenHeader } from "@/components/linen/LinenHeader";
+import { LinenIntake, StagedItem } from "@/components/linen/LinenIntake";
+import { LinenResults } from "@/components/linen/LinenResults";
 import {
   inspectSinglePhoto,
   inspectBatchPhotos,
   createSampleFile,
 } from "@/lib/api";
-import {
-  InspectionItem,
-} from "@/lib/inspection-adapter";
+import { InspectionItem } from "@/lib/inspection-adapter";
 
 export default function QualityInspectionDashboard() {
   const [mode, setMode] = useState<"single" | "batch">("single");
@@ -39,7 +37,6 @@ export default function QualityInspectionDashboard() {
         });
         setServerOnline(res.ok);
       } catch {
-        // Fallback probe via local API proxy
         try {
           const proxyRes = await fetch("/api/classify?mock=OK", {
             method: "POST",
@@ -65,10 +62,8 @@ export default function QualityInspectionDashboard() {
 
     setStagedItems((prev) => {
       if (mode === "single") {
-        // Single mode holds 1 file at a time
         return [newItems[0]];
       }
-      // Batch mode appends up to 10 files
       return [...prev, ...newItems].slice(0, 10);
     });
 
@@ -233,13 +228,13 @@ export default function QualityInspectionDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#090A0E] text-slate-100 flex flex-col font-sans selection:bg-cyan-500/30 selection:text-cyan-200">
+    <div className="min-h-screen bg-[#FAF8F5] text-[#1C1917] flex flex-col font-sans selection:bg-[#FCE7D8] selection:text-[#7C2D12]">
       {/* Skip Navigation Link for Keyboard Accessibility */}
       <a
-        href="#main-flow-terminal"
-        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 z-50 px-3 py-1.5 bg-cyan-500 text-[#090C12] font-mono text-xs font-bold rounded shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+        href="#main-linen-flow"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 z-50 px-3.5 py-2 bg-[#1C1917] text-[#FAF8F5] font-mono text-xs font-semibold rounded-lg shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9A3412]"
       >
-        Skip to inspection terminal
+        Skip to inspection flow
       </a>
 
       {/* Screen Reader Live Region for Async Batch Updates */}
@@ -247,17 +242,17 @@ export default function QualityInspectionDashboard() {
         {announcement}
       </div>
 
-      {/* Minimal Sleek Flow Header */}
-      <FlowHeader
+      {/* Warm Linen Minimalist Header */}
+      <LinenHeader
         useMockFallback={useMockFallback}
         onToggleMockFallback={() => setUseMockFallback(!useMockFallback)}
         onResetAll={handleResetAll}
         serverOnline={serverOnline}
       />
 
-      {/* Main Flow Two-Column Workspace */}
+      {/* Main Two-Column Progressive Flow Workspace */}
       <main
-        id="main-flow-terminal"
+        id="main-linen-flow"
         className="flex-1 max-w-[1900px] w-full mx-auto flex flex-col lg:flex-row overflow-hidden"
       >
         {/* Left Side (~38% width): Intake & Model Hand-Off Station */}
@@ -265,7 +260,7 @@ export default function QualityInspectionDashboard() {
           aria-label="Component intake station"
           className="w-full lg:w-[40%] xl:w-[36%] min-h-[460px] lg:min-h-0 flex flex-col shrink-0"
         >
-          <IntakePanel
+          <LinenIntake
             mode={mode}
             onModeChange={(newMode) => {
               setMode(newMode);
@@ -287,9 +282,9 @@ export default function QualityInspectionDashboard() {
         {/* Right Side (~62% width): Model Execution, Returned JSON & Output */}
         <section
           aria-label="Model inspection results and JSON output"
-          className="flex-1 flex flex-col min-h-0 bg-[#090B0E]"
+          className="flex-1 flex flex-col min-h-0 bg-[#FAF8F5]"
         >
-          <ResultsStage
+          <LinenResults
             activeItem={activeItem}
             allItems={resultItems}
             selectedIndex={selectedIndex}

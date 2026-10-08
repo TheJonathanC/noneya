@@ -17,34 +17,34 @@ export function Badge({
 }: BadgeProps) {
   const variantStyles = {
     nominal:
-      "bg-emerald-950/60 text-emerald-300 border-emerald-500/40 shadow-emerald-950/20",
+      "bg-[#EDF7EE] text-[#166534] border-[#C6E6C8] shadow-xs",
     defective:
-      "bg-rose-950/70 text-rose-300 border-rose-500/50 shadow-rose-950/30",
+      "bg-[#FDF2E9] text-[#9A3412] border-[#FCD6C2] shadow-xs",
     warning:
-      "bg-amber-950/60 text-amber-300 border-amber-500/40 shadow-amber-950/20",
-    cyan: "bg-cyan-950/60 text-cyan-300 border-cyan-500/40 shadow-cyan-950/20",
+      "bg-[#FEF9E7] text-[#B45309] border-[#FDE68A] shadow-xs",
+    cyan: "bg-[#F3EFE6] text-[#7C2D12] border-[#E2DBD0] shadow-xs",
     neutral:
-      "bg-slate-900/80 text-slate-300 border-slate-700/60 shadow-slate-950/20",
+      "bg-[#EFEAE0] text-[#57534E] border-[#DED6C8] shadow-xs",
   }[variant];
 
   const sizeStyles = {
-    sm: "px-1.5 py-0.5 text-[10px]",
-    md: "px-2 py-0.5 text-xs",
-    lg: "px-2.5 py-1 text-xs tracking-wider",
+    sm: "px-2 py-0.5 text-[10px]",
+    md: "px-2.5 py-0.5 text-xs font-semibold",
+    lg: "px-3 py-1 text-xs tracking-wider font-semibold",
   }[size];
 
   const dotColors = {
-    nominal: "bg-emerald-400",
-    defective: "bg-rose-400 animate-pulse motion-reduce:animate-none",
-    warning: "bg-amber-400",
-    cyan: "bg-cyan-400",
-    neutral: "bg-slate-400",
+    nominal: "bg-[#16A34A]",
+    defective: "bg-[#DC2626] animate-pulse motion-reduce:animate-none",
+    warning: "bg-[#D97706]",
+    cyan: "bg-[#C2410C]",
+    neutral: "bg-[#78716A]",
   }[variant];
 
   return (
     <div
       className={clsx(
-        "inline-flex items-center gap-1.5 font-mono font-medium rounded border uppercase select-none",
+        "inline-flex items-center gap-1.5 font-mono font-medium rounded-md border uppercase select-none tracking-wide",
         variantStyles,
         sizeStyles,
         className
