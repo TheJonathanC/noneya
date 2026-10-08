@@ -943,21 +943,11 @@ async def test_integrated_pipeline(file: UploadFile = File(...)):
             "routing": "Forwarded to batch engine / telemetry check",
         }
 
-    # Phase 3: Defective Case & Heatmap Masking
-    heatmap_mask = extract_gradcam_mask(m1, input_tensor1, target_class=1)
-    masked_tensor = input_tensor1 * heatmap_mask  # Black out healthy background
-
-    # Phase 4: Model 2 Multi-Label Categorization on Masked Defect
-    # Resize masked tensor to 224x224 for ResNet-18
-    masked_input2 = torch.nn.functional.interpolate(
-        masked_tensor,
-        size=(224, 224),
-        mode="bilinear",
-        align_corners=False,
-    ).to(device2)
+    # Phase 3 & 4: Defective Case -> Send normal/original image directly to Model 2
+    input_tensor2 = model2_transform(image).unsqueeze(0).to(device2)
 
     with torch.no_grad():
-        outputs2 = m2(masked_input2)
+        outputs2 = m2(input_tensor2)
         probs2 = torch.sigmoid(outputs2)[0]
 
     predicted_defects = []
