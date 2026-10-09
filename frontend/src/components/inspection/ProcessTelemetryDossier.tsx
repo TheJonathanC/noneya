@@ -972,7 +972,7 @@ export function ProcessTelemetryDossier({
         </div>
 
         {/* Graceful Scroll Container with Sticky Header */}
-        <div className="rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-2xs">
+        <div className="relative rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-2xs">
           <div className="max-h-72 sm:max-h-80 overflow-y-auto overflow-x-auto scrollbar-thin">
             <table className="w-full text-left text-xs border-collapse min-w-[760px]">
               <thead className="sticky top-0 z-10 bg-[#FAF8F5] border-b border-[#EAE4D7] text-[10px] font-bold text-[#78716A] uppercase tracking-wider backdrop-blur-md shadow-2xs select-none">
@@ -1137,6 +1137,12 @@ export function ProcessTelemetryDossier({
               </tbody>
             </table>
           </div>
+
+          {/* Smooth scroll bottom fade overlay */}
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[#FFFFFF] via-[#FFFFFF]/80 to-transparent z-10"
+          />
         </div>
       </div>
     </div>

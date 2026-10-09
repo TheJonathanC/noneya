@@ -442,7 +442,7 @@ export function LinenResults({
       ========================================================================= */}
       <aside
         aria-label="Batch Gate Decision & Executive Summary"
-        className="w-full lg:w-[320px] xl:w-[350px] 2xl:w-[380px] h-full min-h-0 shrink-0 flex flex-col overflow-y-auto pr-1 space-y-3 scrollbar-thin"
+        className="relative w-full lg:w-[320px] xl:w-[350px] 2xl:w-[380px] h-full min-h-0 shrink-0 flex flex-col overflow-y-auto pr-1 space-y-3 scrollbar-thin"
       >
         {/* Card 1: Batch Gate Decision Banner (Compact & Sleek) */}
         <section
@@ -525,168 +525,10 @@ export function LinenResults({
           </button>
         </section>
 
-        {/* Card 2: Executive Briefing */}
-        <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2.5 shadow-2xs text-xs">
-          <div className="flex items-center justify-between">
-            <h3 className="font-bold text-[#1C1917] flex items-center gap-1.5 text-xs">
-              <span>Executive Briefing</span>
-            </h3>
-            {anyDefectsInBatch && batchPrediction?.next_batch_risk !== undefined ? (
-              <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
-                Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
-              </span>
-            ) : (
-              <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[#F0FDF4] text-[#166534] border border-[#86EFAC] font-semibold">
-                Quality Gate: Passed
-              </span>
-            )}
-          </div>
-
-          {/* Important Takeaway Callout */}
-          <div
-            className={`p-2.5 rounded-xl text-[11px] font-medium border flex items-center gap-2 ${
-              anyDefectsInBatch
-                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                : hasDriftWarning
-                ? "bg-[#FFFDF5] border-[#FDE68A] text-[#92400E]"
-                : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-            }`}
-          >
-            {anyDefectsInBatch ? (
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#DC2626]" />
-            ) : hasDriftWarning ? (
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
-            ) : (
-              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-[#16A34A]" />
-            )}
-            <span className="leading-tight font-semibold">
-              {anyDefectsInBatch
-                ? "Action Required: Hold scrap parts & adjust parameter setpoints"
-                : hasDriftWarning
-                ? `Process Drift Warning: Telemetry drift detected (${maxDriftSigma.toFixed(1)}σ). Recalibration advised.`
-                : "Line Cleared: All parameters operating within normal Six Sigma tolerance"}
-            </span>
-          </div>
-
-          {/* Clean Executive Summary Body Text */}
-          <p className="text-[#57534E] leading-relaxed text-[11px]">
-            {supervisorSummary
-              ? renderCleanSummary(supervisorSummary)
-              : anyDefectsInBatch
-              ? "Surface anomalies identified during batch inspection. Quarantine defective parts and review telemetry deviations before continuing production."
-              : "All parts in this batch verified nominal. Surface contour, quench rates, and cavity pressures operated continuously within tolerance corridors with zero anomalies."}
-          </p>
-        </section>
-
-        {/* Card 3: Batch Probable Cause (Defective) OR Batch Quality Verification (OK parts) */}
-        {anyDefectsInBatch ? (
-          <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2.5 shadow-2xs text-xs">
-            <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626]" />
-                <span>Batch Root Cause</span>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md font-bold bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]">
-                {compiledDefects.reduce((acc, c) => acc + (c?.count || 1), 0)} Defect(s) Flagged
-              </span>
-            </div>
-
-            {/* Compiled Defect Chips */}
-            {compiledDefects.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 py-0.5">
-                {compiledDefects.map((d) => (
-                  <span
-                    key={d.name}
-                    className="px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-[10px] font-bold"
-                  >
-                    {d.name} ({d.count}x • Img {Array.isArray(d.images) ? d.images.join(", ") : ""})
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* General Batch-Wide Probable Cause Explanation */}
-            <p className="text-[#57534E] leading-relaxed text-[11px]">
-              {generalProbableCause}
-            </p>
-
-            {/* Compiled Culprit Sensor Tags */}
-            {batchCulpritSensors.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                <span className="text-[10px] text-[#78716A] uppercase font-bold font-sans">
-                  Culprits:
-                </span>
-                {batchCulpritSensors.map((c) => (
-                  <span
-                    key={c}
-                    className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
-                  >
-                    {c.replace(/_/g, " ").toUpperCase()}
-                  </span>
-                ))}
-              </div>
-            )}
-          </section>
-        ) : (
-          /* For OK parts/batch: Show affirmative positive verifications */
-          <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2.5 shadow-2xs text-xs">
-            <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5 text-[#166534]">
-                <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
-                <span>Batch Quality Verification</span>
-              </div>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md font-bold bg-[#F0FDF4] border border-[#86EFAC] text-[#166534]">
-                100% Passed
-              </span>
-            </div>
-
-            {/* Affirmative Positives */}
-            <div className="space-y-1.5 pt-0.5">
-              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
-                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
-                <span>
-                  <strong className="text-[#1C1917]">Surface Integrity:</strong> Clean casting contour across all {allItems.length} parts; zero cracks, flash, or surface tears.
-                </span>
-              </div>
-              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
-                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
-                <span>
-                  <strong className="text-[#1C1917]">Thermal Corridor:</strong> Quench flow rate and mold temperature stable within Six Sigma band.
-                </span>
-              </div>
-              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
-                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
-                <span>
-                  <strong className="text-[#1C1917]">Cavity Fill & Packing:</strong> Complete solidus filling confirmed with zero micro-porosity entrapment.
-                </span>
-              </div>
-              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
-                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
-                <span>
-                  <strong className="text-[#1C1917]">Line Release:</strong> All quality gates satisfied; cleared for downstream assembly.
-                </span>
-              </div>
-            </div>
-
-            {/* Dedicated Process Drift Warning if Drift Present on Nominal Parts */}
-            {hasDriftWarning && (
-              <div className="p-2.5 rounded-xl bg-[#FFFDF5] border border-[#FDE68A] text-[11px] text-[#92400E] space-y-1 mt-2">
-                <div className="font-semibold flex items-center gap-1.5">
-                  <AlertTriangle className="w-3.5 h-3.5 text-[#D97706] shrink-0" />
-                  <span>Process Parameter Drift Warning</span>
-                </div>
-                <p className="text-[10px] leading-relaxed text-[#78350F]">
-                  Telemetry recorded at {maxDriftSigma.toFixed(1)}σ deviation
-                  {outOfToleranceSensors.length > 0
-                    ? ` on ${outOfToleranceSensors.map((s) => s.name).join(", ")}`
-                    : ""}. Components meet quality specification, but setpoint trimming is recommended before the next production run.
-                </p>
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Card 4: Problem Continuation / Line Stability Forecast */}
+        {/* =========================================================================
+            CARD 2: WILL PROBLEM CONTINUE / LINE STABILITY FORECAST
+            Positioned right below Gate Decision to immediately fit in the initial screen
+        ========================================================================= */}
         <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-1.5 shadow-2xs text-xs">
           <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
             <div className="flex items-center gap-1.5">
@@ -712,6 +554,161 @@ export function LinenResults({
               : batchPrediction?.text ||
                 "Nominal line stability verified. Process corridors remain centered with near-zero recurrence risk across subsequent casting cycles."}
           </p>
+        </section>
+
+        {/* =========================================================================
+            CARD 3: EXECUTIVE BRIEFING (UNIFIED WITH BATCH ROOT CAUSE, SENT DOWN)
+        ========================================================================= */}
+        <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-3 shadow-2xs text-xs">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1.5 font-bold text-[#1C1917] text-xs">
+              {anyDefectsInBatch ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626]" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
+              )}
+              <span>
+                {anyDefectsInBatch
+                  ? "Executive Briefing & Root Cause"
+                  : "Executive Briefing & Verification"}
+              </span>
+            </div>
+            {anyDefectsInBatch && compiledDefects.length > 0 ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]">
+                {compiledDefects.reduce((acc, c) => acc + (c?.count || 1), 0)} Defect(s)
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full font-bold bg-[#F0FDF4] border border-[#86EFAC] text-[#166534]">
+                100% Nominal
+              </span>
+            )}
+          </div>
+
+          {/* Action Callout */}
+          <div
+            className={`p-2.5 rounded-xl text-[11px] font-medium border flex items-center gap-2 ${
+              anyDefectsInBatch
+                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                : hasDriftWarning
+                ? "bg-[#FFFDF5] border-[#FDE68A] text-[#92400E]"
+                : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
+            }`}
+          >
+            {anyDefectsInBatch ? (
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#DC2626]" />
+            ) : hasDriftWarning ? (
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
+            ) : (
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-[#16A34A]" />
+            )}
+            <span className="leading-tight font-semibold">
+              {anyDefectsInBatch
+                ? "Action Required: Hold scrap parts & adjust parameter setpoints"
+                : hasDriftWarning
+                ? `Process Drift Warning: Telemetry drift detected (${maxDriftSigma.toFixed(1)}σ). Recalibration advised.`
+                : "Line Cleared: All parameters operating within normal Six Sigma tolerance"}
+            </span>
+          </div>
+
+          {/* Supervisor Briefing Summary Text */}
+          <p className="text-[#57534E] leading-relaxed text-[11px]">
+            {supervisorSummary
+              ? renderCleanSummary(supervisorSummary)
+              : anyDefectsInBatch
+              ? "Surface anomalies identified during batch inspection. Quarantine defective parts and review telemetry deviations before continuing production."
+              : "All parts in this batch verified nominal. Surface contour, quench rates, and cavity pressures operated continuously within tolerance corridors with zero anomalies."}
+          </p>
+
+          {/* Root Cause Details (When defects in batch) */}
+          {anyDefectsInBatch && (
+            <div className="pt-2.5 border-t border-[#F0ECE1] space-y-2">
+              <span className="text-[10px] font-bold text-[#78716A] uppercase tracking-wider block">
+                Batch Defect Attribution
+              </span>
+
+              {/* Defect Chips */}
+              {compiledDefects.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {compiledDefects.map((d) => (
+                    <span
+                      key={d.name}
+                      className="px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-[10px] font-bold"
+                    >
+                      {d.name} ({d.count}x • Img {Array.isArray(d.images) ? d.images.join(", ") : ""})
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* General Cause Synthesis */}
+              <p className="text-[#57534E] leading-relaxed text-[11px] bg-[#FAF8F5] p-2.5 rounded-xl border border-[#EAE4D7]">
+                {generalProbableCause}
+              </p>
+
+              {/* Culprit Sensors */}
+              {batchCulpritSensors.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                  <span className="text-[10px] text-[#78716A] uppercase font-bold font-sans">
+                    Culprits:
+                  </span>
+                  {batchCulpritSensors.map((c) => (
+                    <span
+                      key={c}
+                      className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
+                    >
+                      {c.replace(/_/g, " ").toUpperCase()}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Affirmative Positives Checklist (When nominal) */}
+          {!anyDefectsInBatch && (
+            <div className="pt-2.5 border-t border-[#F0ECE1] space-y-1.5">
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Surface Integrity:</strong> Clean casting contour across all {allItems.length} parts; zero cracks, flash, or surface tears.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Thermal Corridor:</strong> Quench flow rate and mold temperature stable within Six Sigma band.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Cavity Fill & Packing:</strong> Complete solidus filling confirmed with zero micro-porosity entrapment.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Line Release:</strong> All quality gates satisfied; cleared for downstream assembly.
+                </span>
+              </div>
+
+              {hasDriftWarning && (
+                <div className="p-2.5 rounded-xl bg-[#FFFDF5] border border-[#FDE68A] text-[11px] text-[#92400E] space-y-1 mt-2">
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-[#D97706] shrink-0" />
+                    <span>Process Parameter Drift Warning</span>
+                  </div>
+                  <p className="text-[10px] leading-relaxed text-[#78350F]">
+                    Telemetry recorded at {maxDriftSigma.toFixed(1)}σ deviation
+                    {outOfToleranceSensors.length > 0
+                      ? ` on ${outOfToleranceSensors.map((s) => s.name).join(", ")}`
+                      : ""}. Components meet quality specification, but setpoint trimming is recommended before the next production run.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </section>
 
         {/* =========================================================================
@@ -847,41 +844,151 @@ export function LinenResults({
             </div>
           )}
         </section>
+
+        {/* Smooth scroll bottom fade overlay */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none sticky bottom-0 left-0 right-0 h-6 -mt-6 bg-gradient-to-t from-[#FAF8F5] via-[#FAF8F5]/80 to-transparent z-10 shrink-0"
+        />
       </aside>
 
       {/* =========================================================================
           RIGHT ~75% COLUMN: COMPACT IMAGE SELECTOR, BIG IMAGE VIEWER & WORKSPACE
       ========================================================================= */}
-      <main className="flex-1 min-w-0 w-full h-full min-h-0 flex flex-col overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 scrollbar-thin">
-        {/* Top Control Bar: Status Indicator + Workspace Tabs */}
-        <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2.5 sm:p-3 shadow-xs flex flex-wrap items-center justify-between gap-2.5 shrink-0">
-          {/* Left: Solid Status Indicator (No Flashing) */}
-          <div className="flex items-center gap-2.5">
-            <div
-              className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
-                anyDefectsInBatch
-                  ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                  : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-              }`}
-            >
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  anyDefectsInBatch ? "bg-[#EF4444]" : "bg-[#22C55E]"
+      <main className="relative flex-1 min-w-0 w-full h-full min-h-0 flex flex-col overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 scrollbar-thin">
+        {/* =========================================================================
+            1. BATCH IMAGE SELECTOR BAR (ABOVE THE TABS BAR)
+            Shows status badge, active image count, and horizontal chip selector
+        ========================================================================= */}
+        {allItems.length > 0 && (
+          <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2 sm:p-2.5 shadow-xs flex items-center justify-between gap-3 shrink-0">
+            {/* Status Indicator */}
+            <div className="flex items-center gap-2 shrink-0">
+              <div
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${
+                  anyDefectsInBatch
+                    ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                    : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
                 }`}
-              />
-              <span>{anyDefectsInBatch ? "Defects Detected" : "All Good • Batch OK"}</span>
+              >
+                <span
+                  className={`w-2 h-2 rounded-full shrink-0 ${
+                    anyDefectsInBatch ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                  }`}
+                />
+                <span className="hidden sm:inline">
+                  {anyDefectsInBatch ? "Defects Detected" : "Batch Nominal"}
+                </span>
+                <span className="sm:hidden">
+                  {anyDefectsInBatch ? "Defects" : "OK"}
+                </span>
+              </div>
+
+              <span className="text-[11px] font-mono text-[#78716A] hidden md:inline">
+                {allItems.length} {allItems.length === 1 ? "Image" : "Images"}
+              </span>
+
+              {isBatchProcessing && (
+                <div className="px-2 py-0.5 text-[11px] font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-lg flex items-center gap-1.5">
+                  <DotsLoader size="sm" shape="loader" className="w-3 h-3" />
+                  <span className="hidden lg:inline">Processing…</span>
+                </div>
+              )}
             </div>
 
-            <span className="text-xs text-[#78716A]">
-              Batch of {allItems.length} {allItems.length === 1 ? "Image" : "Images"}
-            </span>
+            {/* Scrollable Image Chips Row with graceful scroll */}
+            <div className="relative flex-1 min-w-0 flex items-center">
+              <div
+                ref={carouselRef}
+                className="flex items-center gap-2 overflow-x-auto scrollbar-thin py-0.5 flex-1 min-w-0"
+              >
+                {allItems.map((item, idx) => {
+                  const itemDefective = item.status === "DEFECTIVE";
+                  const isSelected = selectedIndex === idx;
 
-            {isBatchProcessing && (
-              <div className="px-2.5 py-1 text-xs font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center gap-1.5">
-                <DotsLoader size="sm" shape="loader" className="w-3.5 h-3.5" />
-                <span>Analyzing all components…</span>
+                  const defectLabel =
+                    item.predictedDefects && item.predictedDefects.length > 0
+                      ? item.predictedDefects[0]
+                      : item.defectType || (itemDefective ? "Defect" : "Pass");
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onSelectIndex(idx)}
+                      className={`px-2.5 py-1.5 rounded-xl border flex items-center gap-2 text-xs transition-all shrink-0 cursor-pointer select-none ${
+                        isSelected
+                          ? "bg-[#1C1917] text-[#FAF8F5] border-[#1C1917] shadow-xs"
+                          : "bg-[#FAF8F5] text-[#57534E] border-[#E5DFD3] hover:bg-[#FFFFFF] hover:border-[#DDD5C7] hover:text-[#1C1917]"
+                      }`}
+                    >
+                      <span
+                        className={`w-2 h-2 rounded-full shrink-0 ${
+                          itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                        }`}
+                      />
+                      <span className="font-bold">Image {idx + 1}</span>
+
+                      <span
+                        className={`text-[10px] font-semibold px-1.5 py-0.2 rounded-md ${
+                          isSelected
+                            ? itemDefective
+                              ? "bg-[#DC2626] text-white"
+                              : "bg-[#16A34A] text-white"
+                            : itemDefective
+                            ? "bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5]"
+                            : "bg-[#F0FDF4] text-[#166534] border border-[#86EFAC]"
+                        }`}
+                      >
+                        {itemDefective ? defectLabel : "Pass"}
+                      </span>
+
+                      <span className="font-mono text-[10px] opacity-75">
+                        {Math.round(item.confidenceScore)}%
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Scroll Arrows if multiple images */}
+            {allItems.length > 2 && (
+              <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-[#EAE4D7]">
+                <button
+                  type="button"
+                  onClick={() => handleScrollCarousel("left")}
+                  title="Scroll images left"
+                  aria-label="Scroll images left"
+                  className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScrollCarousel("right")}
+                  title="Scroll images right"
+                  aria-label="Scroll images right"
+                  className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             )}
+          </div>
+        )}
+
+        {/* =========================================================================
+            2. WORKSPACE TABS BAR (DIRECTLY BELOW THE IMAGE BAR)
+        ========================================================================= */}
+        <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2 sm:p-2.5 shadow-2xs flex items-center justify-between gap-2.5 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-xs font-semibold text-[#1C1917] px-2.5 py-1 rounded-lg bg-[#FAF8F5] border border-[#EAE4D7]">
+              Image {selectedIndex + 1} of {allItems.length}
+            </span>
+            <span className="text-xs text-[#78716A] hidden sm:inline">
+              {isDefective ? "Defect Analysis Active" : "Nominal Verification Active"}
+            </span>
           </div>
 
           {/* Right: Workspace Tabs */}
@@ -912,92 +1019,6 @@ export function LinenResults({
             })}
           </div>
         </div>
-
-        {/* =========================================================================
-            SLEEK COMPACT BATCH SELECTOR (NO THUMBNAILS - LETS BIG IMAGES COME UP)
-            Takes only ~38px height so the full image inspector is immediately prominent!
-        ========================================================================= */}
-        {allItems.length > 0 && (
-          <div className="flex items-center justify-between gap-2 bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2 shadow-2xs shrink-0">
-            {/* Scrollable Chip Row */}
-            <div
-              ref={carouselRef}
-              className="flex items-center gap-2 overflow-x-auto scrollbar-thin py-0.5 flex-1 min-w-0"
-            >
-              {allItems.map((item, idx) => {
-                const itemDefective = item.status === "DEFECTIVE";
-                const isSelected = selectedIndex === idx;
-
-                const defectLabel =
-                  item.predictedDefects && item.predictedDefects.length > 0
-                    ? item.predictedDefects[0]
-                    : item.defectType || (itemDefective ? "Defect" : "Pass");
-
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelectIndex(idx)}
-                    className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 text-xs transition-all shrink-0 cursor-pointer select-none ${
-                      isSelected
-                        ? "bg-[#1C1917] text-[#FAF8F5] border-[#1C1917] shadow-xs"
-                        : "bg-[#FAF8F5] text-[#57534E] border-[#E5DFD3] hover:bg-[#FFFFFF] hover:border-[#DDD5C7] hover:text-[#1C1917]"
-                    }`}
-                  >
-                    <span
-                      className={`w-2 h-2 rounded-full shrink-0 ${
-                        itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
-                      }`}
-                    />
-                    <span className="font-bold">Image {idx + 1}</span>
-
-                    <span
-                      className={`text-[10px] font-semibold px-1.5 py-0.2 rounded-md ${
-                        isSelected
-                          ? itemDefective
-                            ? "bg-[#DC2626] text-white"
-                            : "bg-[#16A34A] text-white"
-                          : itemDefective
-                          ? "bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5]"
-                          : "bg-[#F0FDF4] text-[#166534] border border-[#86EFAC]"
-                      }`}
-                    >
-                      {itemDefective ? defectLabel : "Pass"}
-                    </span>
-
-                    <span className="font-mono text-[10px] opacity-75">
-                      {Math.round(item.confidenceScore)}%
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Scroll Arrows if multiple images */}
-            {allItems.length > 2 && (
-              <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-[#EAE4D7]">
-                <button
-                  type="button"
-                  onClick={() => handleScrollCarousel("left")}
-                  title="Scroll images left"
-                  aria-label="Scroll images left"
-                  className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] cursor-pointer"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleScrollCarousel("right")}
-                  title="Scroll images right"
-                  aria-label="Scroll images right"
-                  className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] cursor-pointer"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-          </div>
-        )}
 
         {/* =========================================================================
             WORKSPACE CONTENT: BASED ON ACTIVE TAB
@@ -1103,6 +1124,12 @@ export function LinenResults({
             }
           />
         )}
+
+        {/* Smooth scroll bottom fade overlay */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none sticky bottom-0 left-0 right-0 h-6 -mt-6 bg-gradient-to-t from-[#FAF8F5] via-[#FAF8F5]/80 to-transparent z-10 shrink-0"
+        />
       </main>
     </div>
   );
