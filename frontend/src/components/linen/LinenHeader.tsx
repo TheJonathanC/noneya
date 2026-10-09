@@ -77,7 +77,6 @@ export function LinenHeader({
           >
             <PlayCircle className="w-3.5 h-3.5" />
             <span>Pipeline Simulation</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse ml-0.5" />
           </Link>
         </nav>
 

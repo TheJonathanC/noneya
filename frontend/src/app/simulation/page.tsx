@@ -224,16 +224,9 @@ export default function SimulationPage() {
         {/* Top Header Bar */}
         <div className="flex items-center justify-between gap-4 pb-3 border-b border-[#EAE4D7]">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-base sm:text-lg font-bold tracking-tight text-[#1C1917]">
-                Pipeline Simulation
-              </h1>
-              {batchItems.length > 1 && (
-                <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#1C1917] text-[#FAF8F5]">
-                  BATCH MODE ({batchItems.length} PARTS)
-                </span>
-              )}
-            </div>
+            <h1 className="text-base sm:text-lg font-bold tracking-tight text-[#1C1917]">
+              Pipeline Simulation
+            </h1>
             <p className="text-xs text-[#78716A]">
               Physical component flow: Workstation Ingestion → Server Neural Engine → Report Terminal.
             </p>
