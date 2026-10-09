@@ -3,7 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { RotateCcw, LayoutDashboard, PlayCircle, Database, Camera } from "lucide-react";
+import { RotateCcw, LayoutDashboard, PlayCircle, Database } from "lucide-react";
 
 interface LinenHeaderProps {
   onResetAll?: () => void;
@@ -89,18 +89,6 @@ export function LinenHeader({
           >
             <Database className="w-3.5 h-3.5" />
             <span>Process Data</span>
-          </Link>
-
-          <Link
-            href="/phone"
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
-              pathname === "/phone" || pathname === "/camera"
-                ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
-                : "text-[#57534E] hover:text-[#1C1917] hover:bg-[#FAF8F5]"
-            }`}
-          >
-            <Camera className="w-3.5 h-3.5" />
-            <span>Camera</span>
           </Link>
         </nav>
 
