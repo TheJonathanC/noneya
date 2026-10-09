@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -338,8 +338,8 @@ export function LinenResults({
   // Out of tolerance sensors
   const outOfToleranceSensors = (activeItem.telemetry || []).filter((t) => t.isOutOfTolerance);
 
-  // Compile all defects across the whole batch safely
-  const compiledDefects = useMemo(() => {
+  // Compile all defects across the whole batch safely (plain computation, no hook)
+  const compiledDefects = (() => {
     const tally: Record<string, { count: number; imageIndices: number[]; parts: string[] }> = {};
     if (!Array.isArray(allItems)) return [];
 
@@ -370,10 +370,10 @@ export function LinenResults({
       images: data.imageIndices || [],
       parts: data.parts || [],
     }));
-  }, [allItems]);
+  })();
 
-  // Unified culprit sensors across the whole batch
-  const batchCulpritSensors = useMemo(() => {
+  // Unified culprit sensors across the whole batch (plain computation, no hook)
+  const batchCulpritSensors = (() => {
     const culprits = new Set<string>();
     if (typeof rootCauseAnalysisData?.primary_culprit_sensor === "string") {
       culprits.add(rootCauseAnalysisData.primary_culprit_sensor.toLowerCase());
@@ -389,10 +389,10 @@ export function LinenResults({
       });
     }
     return Array.from(culprits);
-  }, [rootCauseAnalysisData, batchFixes, outOfToleranceSensors]);
+  })();
 
-  // General batch-wide probable cause synthesis based on compiled defects
-  const generalProbableCause = useMemo(() => {
+  // General batch-wide probable cause synthesis based on compiled defects (plain computation, no hook)
+  const generalProbableCause = (() => {
     if (!compiledDefects || compiledDefects.length === 0) {
       return "Batch verified nominal: Process parameters and thermal corridors stable across all parts with zero defect signatures.";
     }
@@ -430,10 +430,10 @@ export function LinenResults({
 
     const compiledStr = compiledDefects.map((d) => `${d.name} (${d.count}x)`).join(", ");
     return `Systemic line parameter drift inducing ${compiledStr}. Hydraulic pack pressure and thermal cooling rates deviated from the nominal Six Sigma process corridor during this batch run.`;
-  }, [compiledDefects, rawJson, rootCauseAnalysisData]);
+  })();
 
-  // Machine Quality Deterioration & Value Drift Calculation
-  const maxDriftSigma = useMemo(() => {
+  // Machine Quality Deterioration & Value Drift Calculation (plain computation, no hook)
+  const maxDriftSigma = (() => {
     if (batchAnalysis?.stats && typeof batchAnalysis.stats === "object" && "max_drift_sigma" in batchAnalysis.stats) {
       const val = Number((batchAnalysis.stats as { max_drift_sigma: unknown }).max_drift_sigma);
       if (!isNaN(val)) return val;
@@ -441,7 +441,7 @@ export function LinenResults({
     if (Array.isArray(outOfToleranceSensors) && outOfToleranceSensors.length > 0) return 3.4;
     if (anyDefectsInBatch) return 2.2;
     return 0.4;
-  }, [batchAnalysis, outOfToleranceSensors, anyDefectsInBatch]);
+  })();
 
   // Deterioration Score: 100% is pristine, lower means machine wear / calibration drift
   const machineHealthPercent = Math.max(25, Math.min(100, Math.round(100 - maxDriftSigma * 16)));
