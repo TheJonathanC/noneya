@@ -844,18 +844,13 @@ export function LinenResults({
             </div>
           )}
         </section>
-
-        {/* Smooth scroll bottom fade overlay */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none sticky bottom-0 left-0 right-0 h-6 -mt-6 bg-gradient-to-t from-[#FAF8F5] via-[#FAF8F5]/80 to-transparent z-10 shrink-0"
-        />
       </aside>
 
       {/* =========================================================================
           RIGHT ~75% COLUMN: COMPACT IMAGE SELECTOR, BIG IMAGE VIEWER & WORKSPACE
       ========================================================================= */}
-      <main className="relative flex-1 min-w-0 w-full h-full min-h-0 overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 pb-24 sm:pb-32 scrollbar-thin">
+      <div className="relative flex-1 min-w-0 w-full h-full min-h-0 flex flex-col overflow-hidden">
+        <main className="relative w-full h-full flex-1 min-h-0 overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 pb-16 sm:pb-24 scrollbar-thin">
         {/* =========================================================================
             1. BATCH IMAGE SELECTOR BAR (ABOVE THE TABS BAR)
             Shows status badge, active image count, and horizontal chip selector
@@ -1127,12 +1122,14 @@ export function LinenResults({
           />
         )}
 
-        {/* Smooth scroll bottom fade overlay */}
+        </main>
+
+        {/* Smooth scroll bottom fade overlay: strictly pinned to the bottom of the viewport */}
         <div
           aria-hidden="true"
-          className="pointer-events-none sticky bottom-0 left-0 right-0 h-6 -mt-6 bg-gradient-to-t from-[#FAF8F5] via-[#FAF8F5]/80 to-transparent z-10 shrink-0"
+          className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[#FAF8F5] via-[#FAF8F5]/80 to-transparent z-10"
         />
-      </main>
+      </div>
     </div>
   );
 }

@@ -1172,12 +1172,6 @@ export function ProcessTelemetryDossier({
               </tbody>
             </table>
           </div>
-
-          {/* Smooth scroll bottom fade overlay */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-[#FFFFFF] via-[#FFFFFF]/80 to-transparent z-10"
-          />
         </div>
       </div>
     </div>
