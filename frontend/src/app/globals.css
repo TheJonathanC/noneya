@@ -47,3 +47,88 @@ body {
   background-color: #FCE7D8;
   color: #7C2D12;
 }
+
+/* Simulation Pipeline Custom Animations */
+@keyframes laser-sweep {
+  0% {
+    top: 0%;
+    opacity: 0.85;
+  }
+  50% {
+    top: 98%;
+    opacity: 1;
+  }
+  100% {
+    top: 0%;
+    opacity: 0.85;
+  }
+}
+
+@keyframes pipe-pulse {
+  from {
+    stroke-dashoffset: 40;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes data-stream {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(200%);
+    opacity: 0;
+  }
+}
+
+.animate-laser-sweep {
+  animation: laser-sweep 2.2s ease-in-out infinite;
+}
+
+.animate-pipe-pulse {
+  animation: pipe-pulse 1.2s linear infinite;
+}
+
+.animate-data-stream {
+  animation: data-stream 1.8s ease-in-out infinite;
+}
+
+@keyframes conveyor-pulse {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 0;
+  }
+}
+
+.animate-conveyor-track {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(229, 223, 211, 0.4) 0px,
+    rgba(229, 223, 211, 0.4) 10px,
+    transparent 10px,
+    transparent 20px
+  );
+  animation: conveyor-pulse 1.2s linear infinite;
+}
+
+@keyframes item-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.8);
+  }
+}
+
+.animate-item-active {
+  animation: item-glow 1.5s ease-in-out infinite;
+}
+

@@ -48,26 +48,28 @@ export interface DefectSegmenterProps {
 /**
  * Procedural fallback thermal heatmap SVG generator if no image mask is provided
  */
-function createSyntheticHeatmapUri(defectType: string, isCritical: boolean): string {
+function createSyntheticHeatmapUri(defectType: string = "Defect", isCritical: boolean = false): string {
+  const safeDefectType = typeof defectType === "string" && defectType.trim().length > 0 ? defectType : "Defect";
   const cx = 416;
   const cy = 288;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
     <defs>
       <radialGradient id="hotspot" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#FF002B" stop-opacity="0.95"/>
-        <stop offset="28%" stop-color="#FF6200" stop-opacity="0.88"/>
-        <stop offset="55%" stop-color="#FFD000" stop-opacity="0.75"/>
-        <stop offset="75%" stop-color="#00E5FF" stop-opacity="0.45"/>
-        <stop offset="90%" stop-color="#0037FF" stop-opacity="0.2"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+        <stop offset="0%" stop-color="#D60000" stop-opacity="0.95"/>
+        <stop offset="24%" stop-color="#FF5100" stop-opacity="0.90"/>
+        <stop offset="48%" stop-color="#FFC400" stop-opacity="0.75"/>
+        <stop offset="68%" stop-color="#00E676" stop-opacity="0.55"/>
+        <stop offset="84%" stop-color="#00B0FF" stop-opacity="0.35"/>
+        <stop offset="100%" stop-color="#070F26" stop-opacity="0.10"/>
       </radialGradient>
       <radialGradient id="nominal" cx="50%" cy="50%" r="50%">
-        <stop offset="0%" stop-color="#00FF9D" stop-opacity="0.32"/>
-        <stop offset="65%" stop-color="#00B4D8" stop-opacity="0.12"/>
-        <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+        <stop offset="0%" stop-color="#00E676" stop-opacity="0.35"/>
+        <stop offset="50%" stop-color="#00B0FF" stop-opacity="0.20"/>
+        <stop offset="80%" stop-color="#070F26" stop-opacity="0.08"/>
+        <stop offset="100%" stop-color="#070F26" stop-opacity="0"/>
       </radialGradient>
     </defs>
-    <rect width="800" height="600" fill="#05070A"/>
+    <rect width="800" height="600" fill="#070F26"/>
     ${
       isCritical
         ? `<circle cx="${cx}" cy="${cy}" r="185" fill="url(#hotspot)"/>
@@ -76,11 +78,11 @@ function createSyntheticHeatmapUri(defectType: string, isCritical: boolean): str
            <line x1="${cx}" y1="${cy - 45}" x2="${cx}" y2="${cy + 45}" stroke="#FFFFFF" stroke-width="1.8" stroke-dasharray="3,3"/>
            <circle cx="${cx}" cy="${cy}" r="26" fill="none" stroke="#FFFFFF" stroke-width="1.6"/>
            <rect x="${cx + 36}" y="${cy - 45}" width="165" height="44" rx="4" fill="#0F131D" fill-opacity="0.92" stroke="#FF003C" stroke-width="1.2"/>
-           <text x="${cx + 46}" y="${cy - 28}" fill="#FF4060" font-family="monospace" font-size="11" font-weight="bold">GRAD-CAM: ${defectType.toUpperCase()}</text>
+           <text x="${cx + 46}" y="${cy - 28}" fill="#FF4060" font-family="monospace" font-size="11" font-weight="bold">GRAD-CAM: ${safeDefectType.toUpperCase()}</text>
            <text x="${cx + 46}" y="${cy - 12}" fill="#94A3B8" font-family="monospace" font-size="10">PEAK Z: 4.85 • CRITICAL</text>`
         : `<circle cx="400" cy="300" r="240" fill="url(#nominal)"/>
-           <rect x="330" y="275" width="140" height="34" rx="4" fill="#0D1518" fill-opacity="0.9" stroke="#00FF9D" stroke-width="1"/>
-           <text x="345" y="296" fill="#00FF9D" font-family="monospace" font-size="11" font-weight="bold">NOMINAL PASS</text>`
+           <rect x="330" y="275" width="140" height="34" rx="4" fill="#0D1518" fill-opacity="0.9" stroke="#00E676" stroke-width="1"/>
+           <text x="345" y="296" fill="#00E676" font-family="monospace" font-size="11" font-weight="bold">NOMINAL PASS</text>`
     }
   </svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
@@ -397,24 +399,13 @@ export function DefectSegmenter({
 
                 {/* Heatmap Pane (for 'heatmap' or 'all') */}
                 {(splitOverlay === "heatmap" || splitOverlay === "all") && (
-                  <div className="relative h-full flex-1 rounded-lg overflow-hidden border border-[#F59E0B]/40 bg-[#0F131A] flex items-center justify-center p-2">
+                  <div className="relative h-full flex-1 rounded-lg overflow-hidden border border-[#F59E0B]/40 bg-[#070F26] flex items-center justify-center p-2">
                     <div className="relative inline-block max-w-full max-h-full leading-none">
                       <img
-                        src={hasOriginal ? originalImage! : resolvedHeatmap}
-                        alt="Base optical"
-                        className="max-w-full max-h-[440px] w-auto h-auto object-contain block rounded-lg select-none brightness-90"
+                        src={resolvedHeatmap}
+                        alt="Grad-CAM heatmap"
+                        className="max-w-full max-h-[440px] w-auto h-auto object-contain block rounded-lg select-none"
                       />
-                      {showMask && hasHeatmap && (
-                        <img
-                          src={resolvedHeatmap}
-                          alt="Grad-CAM heatmap"
-                          className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-lg"
-                          style={{
-                            opacity: 0.8,
-                            mixBlendMode: "screen",
-                          }}
-                        />
-                      )}
                       <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#D97706]/90 border border-[#F59E0B] text-[10px] font-mono text-[#FAF8F5] shadow-md">
                         Grad-CAM Heatmap
                       </div>
@@ -524,8 +515,8 @@ export function DefectSegmenter({
                           alt="Grad-CAM heatmap"
                           className="absolute inset-0 w-full h-full object-fill pointer-events-none rounded-lg"
                           style={{
-                            opacity: 0.65,
-                            mixBlendMode: "screen",
+                            opacity: 0.55,
+                            mixBlendMode: "normal",
                           }}
                         />
                       )}
@@ -576,33 +567,40 @@ export function DefectSegmenter({
               /* VIEW MODES: PERCEPTION, COMBINED, OVERLAY, ORIGINAL, HEATMAP SOLO */
               <div className="relative max-w-full max-h-full flex items-center justify-center p-1">
                 <div className="relative inline-block max-w-full max-h-full leading-none shadow-2xl rounded-lg overflow-hidden">
-                  {/* Layer 1: Base Optical Photograph */}
-                  <img
-                    src={hasOriginal ? originalImage! : resolvedHeatmap}
-                    alt="Component inspection"
-                    className={`max-w-full max-h-[480px] w-auto h-auto object-contain block select-none transition-all duration-200 ${
-                      viewMode === "perception" ? "brightness-90 contrast-105" : ""
-                    }`}
-                  />
+                  {/* Layer 1: Base Optical Photograph (Hidden in solo heatmap mode to prevent washed-out screening) */}
+                  {viewMode !== "heatmap" ? (
+                    <img
+                      src={hasOriginal ? originalImage! : resolvedHeatmap}
+                      alt="Component inspection"
+                      className={`max-w-full max-h-[480px] w-auto h-auto object-contain block select-none transition-all duration-200 ${
+                        viewMode === "perception"
+                          ? "brightness-90 contrast-105"
+                          : viewMode === "combined"
+                          ? "brightness-85 contrast-105"
+                          : ""
+                      }`}
+                    />
+                  ) : (
+                    /* Solo Heatmap: Raw authentic thermal JET map without washed-out base */
+                    <img
+                      src={resolvedHeatmap}
+                      alt="AI Grad-CAM localization defect heatmap"
+                      className="max-w-full max-h-[480px] w-auto h-auto object-contain block select-none rounded-lg"
+                    />
+                  )}
 
-                  {/* Layer 2: Grad-CAM Thermal Heatmap */}
-                  {(viewMode === "combined" || viewMode === "heatmap") &&
-                    hasHeatmap && (
-                      <img
-                        src={resolvedHeatmap}
-                        alt="AI Grad-CAM localization defect heatmap"
-                        className="absolute inset-0 w-full h-full object-fill pointer-events-none"
-                        style={{
-                          opacity:
-                            viewMode === "heatmap"
-                              ? 1
-                              : showMask
-                              ? 0.7
-                              : 0,
-                          mixBlendMode: viewMode === "heatmap" ? "screen" : "screen",
-                        }}
-                      />
-                    )}
+                  {/* Layer 2: Grad-CAM Thermal Heatmap Overlay (Used when in 'combined' mode) */}
+                  {viewMode === "combined" && hasHeatmap && (
+                    <img
+                      src={resolvedHeatmap}
+                      alt="AI Grad-CAM localization defect heatmap overlay"
+                      className="absolute inset-0 w-full h-full object-fill pointer-events-none"
+                      style={{
+                        opacity: showMask ? 0.55 : 0,
+                        mixBlendMode: "normal",
+                      }}
+                    />
+                  )}
 
                   {/* Layer 3: Instance Segmentation Polygons / Silhouettes */}
                   {(viewMode === "perception" || viewMode === "combined") && showMask && (
@@ -682,11 +680,7 @@ export function DefectSegmenter({
                                     : "hover:scale-105"
                                 }`}
                               >
-                                <span
-                                  className={`w-1.5 h-1.5 rounded-full bg-white ${
-                                    inst.category === "defect" ? "animate-ping" : ""
-                                  }`}
-                                />
+                                <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0 inline-block" />
                                 <span>
                                   {inst.className}: {inst.confidence}%
                                 </span>
@@ -721,18 +715,6 @@ export function DefectSegmenter({
                 <div>
                   <span className="text-[#A8A29E] block text-[10px]">Category</span>
                   <span className="text-white capitalize">{activeInstance.category}</span>
-                </div>
-                <div>
-                  <span className="text-[#A8A29E] block text-[10px]">Area</span>
-                  <span className="text-white">
-                    {activeInstance.areaMm2 ? `${activeInstance.areaMm2} mm²` : "Localized"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[#A8A29E] block text-[10px]">Center Coords</span>
-                  <span className="text-white">
-                    X:{activeInstance.center.x}% Y:{activeInstance.center.y}%
-                  </span>
                 </div>
                 <div>
                   <span className="text-[#A8A29E] block text-[10px]">Severity</span>
@@ -785,7 +767,7 @@ export function DefectSegmenter({
             {hasHeatmap && (
               <div className="px-2.5 py-1 rounded-md bg-[#1C1917]/85 border border-[#3E3834] backdrop-blur-md text-[10px] font-mono text-[#FAF8F5] flex items-center gap-1.5 shadow-lg">
                 <span
-                  className={`w-1.5 h-1.5 rounded-full animate-pulse inline-block ${
+                  className={`w-1.5 h-1.5 rounded-full inline-block ${
                     viewMode === "perception" ? "bg-[#38BDF8]" : "bg-[#EF4444]"
                   }`}
                 />

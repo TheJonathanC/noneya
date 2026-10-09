@@ -7,6 +7,7 @@ import { LinenIntake, StagedItem } from "@/components/linen/LinenIntake";
 import { LinenResults } from "@/components/linen/LinenResults";
 import {
   inspectSinglePhoto,
+  inspectBatchPhotos,
   InspectionError,
 } from "@/lib/api";
 import { InspectionItem } from "@/lib/inspection-adapter";
@@ -30,7 +31,7 @@ export default function QualityInspectionDashboard() {
   const activeItem = resultItems[selectedIndex] || resultItems[0] || null;
   const activeRawJson = rawJsons[selectedIndex] || null;
 
-  // Handle adding files to staged intake queue
+  // Handle adding files to staged intake queue (single batch set at a time)
   const handleAddFiles = useCallback((files: File[]) => {
     setErrorState(null);
     const newItems: StagedItem[] = files.map((file, i) => ({
@@ -42,14 +43,19 @@ export default function QualityInspectionDashboard() {
     }));
 
     setStagedItems((prev) => {
-      if (mode === "single") {
-        return [newItems[0]];
+      // If a batch is already staged or analyzed, replace or lock to ensure a single batch set
+      if (prev.length > 0 || resultItems.length > 0) {
+        // Reset previously analyzed results when loading a new batch set
+        setResultItems([]);
+        setRawJsons([]);
+        setSelectedIndex(0);
+        return newItems.slice(0, 10);
       }
-      return [...prev, ...newItems].slice(0, 10);
+      return newItems.slice(0, 10);
     });
 
     setActiveStep(1);
-  }, [mode]);
+  }, [resultItems.length]);
 
   // Remove individual staged file
   const handleRemoveStagedItem = useCallback((id: string) => {
@@ -136,82 +142,60 @@ export default function QualityInspectionDashboard() {
         setIsDispatching(false);
       }
     } else {
-      // BATCH MODE: Process one by one sequentially!
-      // Mark all items as queued initially
+      // BATCH MODE: Dispatch to backend batch engine (/api/inspect)
       setStagedItems((prev) =>
-        prev.map((item) => ({ ...item, status: "queued", verdict: undefined }))
+        prev.map((item) => ({ ...item, status: "processing", verdict: undefined }))
       );
-      setResultItems([]);
-      setRawJsons([]);
-      setSelectedIndex(0);
-
-      const itemsToProcess = [...stagedItems];
-      const collectedResults: InspectionItem[] = [];
-      const collectedJsons: (Record<string, unknown> | null)[] = [];
-
-      for (let i = 0; i < itemsToProcess.length; i++) {
-        if (cancelProcessingRef.current) break;
-
-        setCurrentProcessingIndex(i);
-        setStagedItems((prev) =>
-          prev.map((item, idx) => (idx === i ? { ...item, status: "processing" } : item))
-        );
-
-        try {
-          const file = itemsToProcess[i].file;
-          const result = await inspectSinglePhoto(file, {
-            useMockFallback: true,
-          });
-
-          if (cancelProcessingRef.current) break;
-
-          collectedResults.push(result.item);
-          collectedJsons.push(result.rawJson);
-
-          // Real-time update: Output shows immediately as each part is processed!
-          setResultItems([...collectedResults]);
-          setRawJsons([...collectedJsons]);
-          setSelectedIndex(collectedResults.length - 1);
-          setActiveStep(3);
-
-          const anyDefective = collectedResults.some((it) => it.status === "DEFECTIVE");
-          const anyCritical = collectedResults.some(
-            (it) => it.status === "DEFECTIVE" && (it.severity === "Critical" || it.confidenceScore >= 90)
-          );
-          const currentDecision =
-            anyCritical || collectedResults.filter((it) => it.status === "DEFECTIVE").length > 1
-              ? "CRITICAL STOP"
-              : anyDefective
-              ? "ADJUST"
-              : "GO";
-          setGateDecision(currentDecision);
-
-          setStagedItems((prev) =>
-            prev.map((item, idx) =>
-              idx === i
-                ? {
-                    ...item,
-                    status: "completed",
-                    verdict: result.item.status === "DEFECTIVE" ? "defective" : "ok",
-                  }
-                : item
-            )
-          );
-
-          // Subtle micro-delay (300ms) between items for smooth flow perception
-          if (i < itemsToProcess.length - 1 && !cancelProcessingRef.current) {
-            await new Promise((res) => setTimeout(res, 300));
-          }
-        } catch (err) {
-          console.error(`Item ${i + 1} processing failed:`, err);
-          setStagedItems((prev) =>
-            prev.map((item, idx) => (idx === i ? { ...item, status: "error" } : item))
-          );
-        }
-      }
-
       setCurrentProcessingIndex(-1);
-      setIsDispatching(false);
+
+      try {
+        const filesToProcess = stagedItems.map((item) => item.file);
+        const batchResult = await inspectBatchPhotos(filesToProcess, {
+          useMockFallback: true,
+        });
+
+        if (cancelProcessingRef.current) return;
+
+        setResultItems(batchResult.items);
+        setRawJsons(new Array(batchResult.items.length).fill(batchResult.rawJson));
+        setSelectedIndex(0);
+        setActiveStep(3);
+        setGateDecision(batchResult.gateDecision);
+
+        setStagedItems((prev) =>
+          prev.map((item, idx) => {
+            const itemRes = batchResult.items[idx];
+            return {
+              ...item,
+              status: "completed",
+              verdict: itemRes && itemRes.status === "DEFECTIVE" ? "defective" : "ok",
+            };
+          })
+        );
+      } catch (err: unknown) {
+        console.error("Batch dispatch failed:", err);
+        const inspectionErr: InspectionError =
+          err && typeof err === "object" && "title" in err
+            ? (err as InspectionError)
+            : {
+                title: "Batch Inspection Error",
+                message:
+                  err instanceof Error
+                    ? err.message
+                    : "Failed to communicate with batch inspection backend service.",
+                code: "BATCH_DISPATCH_FAILED",
+                retryable: true,
+                timestamp: new Date().toLocaleTimeString(),
+              };
+        setErrorState(inspectionErr);
+        setActiveStep(1);
+        setStagedItems((prev) =>
+          prev.map((item) => ({ ...item, status: "error" }))
+        );
+      } finally {
+        setCurrentProcessingIndex(-1);
+        setIsDispatching(false);
+      }
     }
   }, [stagedItems, mode]);
 
@@ -355,10 +339,10 @@ export default function QualityInspectionDashboard() {
           )}
         </section>
 
-        {/* Right Side: Inspection Report & JSON Output (Scrolls freely) */}
+        {/* Right Side: Inspection Report & JSON Output (Strictly fits container) */}
         <section
           aria-label="Inspection results and report"
-          className="flex-1 min-w-0 lg:h-full overflow-y-auto bg-[#FAF8F5]"
+          className="flex-1 min-w-0 h-full flex flex-col overflow-hidden bg-[#FAF8F5]"
         >
           <LinenResults
             activeItem={activeItem}
