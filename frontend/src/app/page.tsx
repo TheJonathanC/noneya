@@ -79,6 +79,12 @@ export default function LandingPage() {
               Architecture
             </a>
             <Link
+              href="/simulation"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] transition-colors font-medium"
+            >
+              Pipeline Simulation
+            </Link>
+            <Link
               href="/dashboard"
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1C1917] text-[#FAF8F5] font-medium hover:bg-[#2C2724] active:scale-[0.97] transition-[background-color,transform] duration-150"
             >
@@ -113,12 +119,13 @@ export default function LandingPage() {
                 Open dashboard
                 <ArrowRight aria-hidden="true" className="w-4 h-4" />
               </Link>
-              <a
-                href="#how-it-works"
-                className="inline-flex items-center px-5 py-2.5 rounded-xl border border-[#DDD5C7] bg-white text-sm font-medium text-[#1C1917] hover:bg-[#F3EFE6] active:scale-[0.97] transition-[background-color,transform] duration-150"
+              <Link
+                href="/simulation"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl border border-[#DDD5C7] bg-white text-sm font-medium text-[#1C1917] hover:bg-[#F3EFE6] active:scale-[0.97] transition-[background-color,transform] duration-150"
               >
-                See how it works
-              </a>
+                Launch Simulation
+                <Sparkles aria-hidden="true" className="w-4 h-4 text-[#D97706]" />
+              </Link>
             </div>
           </div>
 

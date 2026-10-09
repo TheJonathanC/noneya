@@ -2,7 +2,8 @@
 
 import React from "react";
 import Link from "next/link";
-import { RotateCcw } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { RotateCcw, LayoutDashboard, PlayCircle } from "lucide-react";
 
 interface LinenHeaderProps {
   onResetAll?: () => void;
@@ -13,9 +14,11 @@ export function LinenHeader({
   onResetAll,
   hasActiveInspection = false,
 }: LinenHeaderProps) {
+  const pathname = usePathname();
+
   return (
     <header className="border-b border-[#EAE4D7] bg-[#FAF8F5]/90 sticky top-0 z-40 backdrop-blur-md">
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-8 py-3 flex items-center justify-between gap-4">
         {/* Brand */}
         <Link href="/" aria-label="Qastra home" className="flex items-center gap-3">
           <div className="w-7 h-7 rounded-lg bg-[#1C1917] flex items-center justify-center p-1 shadow-xs shrink-0 select-none">
@@ -49,6 +52,34 @@ export function LinenHeader({
             </p>
           </div>
         </Link>
+
+        {/* Studio vs Simulation Nav Switcher */}
+        <nav className="flex items-center gap-1 bg-[#F3EFE6] p-1 rounded-xl border border-[#E5DFD3] text-xs">
+          <Link
+            href="/dashboard"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              pathname === "/dashboard"
+                ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
+                : "text-[#57534E] hover:text-[#1C1917] hover:bg-[#FAF8F5]"
+            }`}
+          >
+            <LayoutDashboard className="w-3.5 h-3.5" />
+            <span>Inspection Studio</span>
+          </Link>
+
+          <Link
+            href="/simulation"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium transition-all ${
+              pathname === "/simulation"
+                ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
+                : "text-[#57534E] hover:text-[#1C1917] hover:bg-[#FAF8F5]"
+            }`}
+          >
+            <PlayCircle className="w-3.5 h-3.5" />
+            <span>Pipeline Simulation</span>
+            <span className="w-1.5 h-1.5 rounded-full bg-[#16A34A] animate-pulse ml-0.5" />
+          </Link>
+        </nav>
 
         {/* Action: Clean Reset button */}
         {hasActiveInspection && onResetAll && (
