@@ -91,12 +91,6 @@ export default function LandingPage() {
               Process Data
             </Link>
             <Link
-              href="/phone"
-              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] transition-colors font-medium"
-            >
-              Camera
-            </Link>
-            <Link
               href="/dashboard"
               className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1C1917] text-[#FAF8F5] font-medium hover:bg-[#2C2724] active:scale-[0.97] transition-[background-color,transform] duration-150"
             >

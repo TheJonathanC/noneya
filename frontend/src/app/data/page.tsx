@@ -57,7 +57,6 @@ const BASELINES: Record<string, { label: string; unit: string; target: number; m
 export default function TelemetryDataPage() {
   const [records, setRecords] = useState<MongoTelemetryRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [isConnected, setIsConnected] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Filters & search
@@ -80,7 +79,6 @@ export default function TelemetryDataPage() {
       const res = await fetch(`/api/telemetry/recent?limit=${limit}`, { cache: "no-store" });
       if (res.ok) {
         const json = await res.json();
-        setIsConnected(Boolean(json.connected));
         if (Array.isArray(json.records)) {
           setRecords(json.records);
         } else {
@@ -199,20 +197,9 @@ export default function TelemetryDataPage() {
         {/* Top Control Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#EAE4D7]">
           <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#1C1917]">
-                Process Telemetry Sheet
-              </h1>
-              <span
-                className={`font-mono text-[10px] font-bold px-2 py-0.5 rounded-full border ${
-                  isConnected
-                    ? "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-                    : "bg-[#FFFBEB] border-[#FDE68A] text-[#92400E]"
-                }`}
-              >
-                {isConnected ? "MONGODB ATLAS LIVE" : "SYNCING CACHE"}
-              </span>
-            </div>
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#1C1917]">
+              Process Telemetry Sheet
+            </h1>
             <p className="text-xs text-[#78716A] mt-0.5">
               Live historical sensor sheet pulled directly from MongoDB database records.
             </p>
