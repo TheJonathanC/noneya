@@ -389,7 +389,7 @@ export async function runBatchInspection(
   };
 }
 
-function generateFallbackInspection(file: File | Blob, partId?: string): InspectionItem {
+export function generateFallbackInspection(file: File | Blob, partId?: string): InspectionItem {
   const isDefective = Math.random() > 0.65;
   const objectUrl = file instanceof File ? URL.createObjectURL(file) : undefined;
 

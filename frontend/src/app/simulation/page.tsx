@@ -4,70 +4,76 @@ import React, { useState, useRef } from "react";
 import Link from "next/link";
 import {
   Upload,
-  Cpu,
-  Layers,
-  Activity,
-  Sparkles,
-  FileText,
+  RotateCcw,
   CheckCircle2,
   AlertTriangle,
-  RotateCcw,
   ArrowRight,
-  Gauge,
   ExternalLink,
+  Flame,
+  Layers,
+  Cpu,
+  Activity,
+  FileText,
+  Sliders,
 } from "lucide-react";
 import { LinenHeader } from "@/components/linen/LinenHeader";
-import { inspectSinglePhoto } from "@/lib/api";
+import { inspectSinglePhoto, generateFallbackInspection } from "@/lib/api";
 import { InspectionItem } from "@/lib/inspection-adapter";
 
-export type FlowStage =
-  | "idle"
-  | "intake"
-  | "model1"
-  | "model2"
-  | "telemetry"
-  | "report"
-  | "completed";
+export type PipelineStage =
+  | "idle"        // Waiting for upload
+  | "ingestion"   // Computer ingesting photo
+  | "model1"      // Model 1 evaluating binary gate
+  | "model2"      // Model 2 classifying defect & generating heatmap (if defect)
+  | "telemetry"   // Server pulling physical telemetry
+  | "report";     // Final report generated & displayed
 
 export default function SimulationPage() {
-  const [stage, setStage] = useState<FlowStage>("idle");
-  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [stage, setStage] = useState<PipelineStage>("idle");
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const [isDragOver, setIsDragOver] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Model response data
-  const [result, setResult] = useState<InspectionItem | null>(null);
+  // Model Results
   const [isDefective, setIsDefective] = useState<boolean>(false);
   const [defectType, setDefectType] = useState<string>("nominal");
   const [confidence, setConfidence] = useState<number>(98.5);
-  const [heatmapUrl, setHeatmapUrl] = useState<string | null>(null);
-  const [rootCause, setRootCause] = useState<Record<string, unknown> | null>(null);
-  const [gateDecision, setGateDecision] = useState<string>("GO");
-  const [summary, setSummary] = useState<string>("");
+  const [heatmapSrc, setHeatmapSrc] = useState<string | null>(null);
+  const [gateVerdict, setGateVerdict] = useState<"GO" | "ADJUST" | "CRITICAL STOP">("GO");
+  const [reportSummary, setReportSummary] = useState<string>("");
+  const [culpritSensor, setCulpritSensor] = useState<string | null>(null);
+  const [sensorReadings, setSensorReadings] = useState<
+    Array<{ name: string; val: number; unit: string; drift: boolean }>
+  >([]);
 
-  // Visual overlay mode
-  const [viewMode, setViewMode] = useState<"image" | "heatmap" | "overlay">("overlay");
+  // Overlay toggle on final output
+  const [overlayActive, setOverlayActive] = useState<boolean>(true);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isDragOver, setIsDragOver] = useState<boolean>(false);
-
-  // Run the animated flow with the real dashboard model
-  const runSimulation = async (file: File) => {
-    setUploadedFile(file);
-    setResult(null);
-    setStage("intake");
-
+  // Run the animated flow through computer -> server -> models -> report
+  const processImage = async (file: File) => {
+    // 1. Read image preview for the computer screen
     const reader = new FileReader();
     reader.onload = async () => {
       const b64 = reader.result as string;
-      setImageUrl(b64);
+      setImageSrc(b64);
+      setStage("ingestion");
 
-      // Call the real dashboard model in parallel
-      const modelPromise = inspectSinglePhoto(file, { useMockFallback: true });
+      // Dispatch to the real dashboard backend model in parallel with robust error handling
+      const modelPromise = inspectSinglePhoto(file, { useMockFallback: true }).catch((err) => {
+        console.warn("Backend model dispatch fallback:", err);
+        const fallback = generateFallbackInspection(file, "P-SIM-01");
+        return {
+          item: fallback,
+          rawJson: { status: fallback.status, defect_type: fallback.defectType },
+          latencyMs: 120,
+          source: "resilient-engine" as const,
+        };
+      });
 
-      // Stage 1: Intake (1.2s)
-      await new Promise((r) => setTimeout(r, 1200));
+      // Computer ingestion animation (1.4s)
+      await new Promise((r) => setTimeout(r, 1400));
 
-      // Stage 2: Model 1 Gatekeeper (1.8s)
+      // Move into Server Unit: Model 1 Gatekeeper
       setStage("model1");
       const [apiResponse] = await Promise.all([
         modelPromise,
@@ -75,56 +81,62 @@ export default function SimulationPage() {
       ]);
 
       const item = apiResponse.item;
-      setResult(item);
+      const rawJson = apiResponse.rawJson;
 
       const hasDefect = item.status === "DEFECTIVE";
       const determinedDefect = item.defectType || (hasDefect ? "Defect" : "Nominal");
-      const determinedConf = item.confidenceScore || (hasDefect ? 94.2 : 98.8);
+      const determinedConf = item.confidenceScore || (hasDefect ? 94.8 : 99.1);
       const determinedHeatmap =
         item.heatmapImageUrl ||
         item.visionResults?.heatmap_png_url ||
         item.visionResults?.heatmap_image_base64 ||
         null;
 
-      const rawRc = (apiResponse.rawJson?.root_cause_analysis as Record<string, unknown> | undefined) || null;
-      const rawDecision =
-        (typeof apiResponse.rawJson?.gate_decision === "string" ? apiResponse.rawJson.gate_decision : undefined) ||
-        (hasDefect ? "ADJUST" : "GO");
-      const rawSummary =
-        (typeof apiResponse.rawJson?.gemini_report === "string" ? apiResponse.rawJson.gemini_report : undefined) ||
+      const rawData = (rawJson as Record<string, unknown>) || {};
+      const rawRc = (rawData.root_cause_analysis as Record<string, unknown> | undefined) || null;
+      const decision =
+        (typeof rawData.gate_decision === "string"
+          ? (rawData.gate_decision as "GO" | "ADJUST" | "CRITICAL STOP")
+          : undefined) || (hasDefect ? "ADJUST" : "GO");
+      const summary =
+        (typeof rawData.gemini_report === "string" ? rawData.gemini_report : undefined) ||
         item.rootCauseSummary ||
         (hasDefect
-          ? "Surface anomaly identified. Thermal cooling and hydraulic pressure corridors deviated during casting cycle."
+          ? "Surface defect identified. Thermal cooling and hydraulic pressure corridors deviated during casting cycle."
           : "Part verified nominal. Dimensions and surface matrices meet Six Sigma standards.");
 
       setIsDefective(hasDefect);
       setDefectType(determinedDefect);
       setConfidence(determinedConf);
-      setHeatmapUrl(determinedHeatmap);
-      setRootCause(rawRc);
-      setGateDecision(rawDecision);
-      setSummary(rawSummary);
+      setHeatmapSrc(determinedHeatmap);
+      setGateVerdict(decision);
+      setReportSummary(summary);
+      setCulpritSensor(typeof rawRc?.primary_culprit_sensor === "string" ? rawRc.primary_culprit_sensor : null);
+
+      // Sensors from item
+      const sReadings = (item.telemetry || []).slice(0, 4).map((s) => ({
+        name: s.name,
+        val: s.recordedValue,
+        unit: s.unit,
+        drift: s.isOutOfTolerance,
+      }));
+      setSensorReadings(sReadings);
 
       if (hasDefect) {
-        // Defect path: proceed to Model 2 deep classification
-        await new Promise((r) => setTimeout(r, 600));
+        // Defect branch: routes into Model 2 deep classifier
         setStage("model2");
-        await new Promise((r) => setTimeout(r, 1800));
+        await new Promise((r) => setTimeout(r, 2000));
       } else {
-        // OK path: bypass Model 2!
-        await new Promise((r) => setTimeout(r, 600));
+        // OK branch: bypasses Model 2!
+        await new Promise((r) => setTimeout(r, 500));
       }
 
-      // Stage 4: Process Telemetry Corroboration
+      // Enters Telemetry engine
       setStage("telemetry");
       await new Promise((r) => setTimeout(r, 1800));
 
-      // Stage 5: Gemini Synthesis
+      // Output arrives at Report terminal
       setStage("report");
-      await new Promise((r) => setTimeout(r, 1800));
-
-      // Stage 6: Final Destination
-      setStage("completed");
     };
 
     reader.readAsDataURL(file);
@@ -132,9 +144,8 @@ export default function SimulationPage() {
 
   const handleReset = () => {
     setStage("idle");
-    setUploadedFile(null);
-    setImageUrl(null);
-    setResult(null);
+    setImageSrc(null);
+    setHeatmapSrc(null);
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -142,7 +153,7 @@ export default function SimulationPage() {
     setIsDragOver(false);
     const file = e.dataTransfer.files?.[0];
     if (file && file.type.startsWith("image/")) {
-      runSimulation(file);
+      processImage(file);
     }
   };
 
@@ -150,15 +161,15 @@ export default function SimulationPage() {
     <div className="min-h-screen flex flex-col bg-[#FAF8F5] text-[#1C1917]">
       <LinenHeader />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between gap-4 pb-2 border-b border-[#EAE4D7]">
+      <main className="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col justify-between gap-6">
+        {/* Sleek Top Header Bar */}
+        <div className="flex items-center justify-between gap-4 pb-3 border-b border-[#EAE4D7]">
           <div>
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-[#1C1917]">
-              Pipeline Flow Simulation
+            <h1 className="text-base sm:text-lg font-bold tracking-tight text-[#1C1917]">
+              Pipeline Simulation
             </h1>
-            <p className="text-xs text-[#78716A] mt-0.5">
-              Visual trace through Model 1 binary gate, Model 2 deep localization, process telemetry, and Gemini synthesis.
+            <p className="text-xs text-[#78716A]">
+              Physical component visual flow: Workstation Ingestion → Server Neural Engine → Report Terminal.
             </p>
           </div>
 
@@ -169,441 +180,366 @@ export default function SimulationPage() {
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-xs font-medium text-[#1C1917] transition-colors shadow-xs cursor-pointer"
             >
               <RotateCcw className="w-3.5 h-3.5 text-[#78716A]" />
-              <span>New Inspection</span>
+              <span>Reset Flow</span>
             </button>
           )}
         </div>
 
-        {/* Visual Pipeline Flowchart */}
-        <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-4 sm:p-5 shadow-xs">
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 items-center">
-            {/* Step 1: Intake */}
-            <div
-              className={`p-3 rounded-xl border text-xs transition-all ${
-                stage === "intake"
-                  ? "border-[#1C1917] bg-[#FAF8F5] ring-1 ring-[#1C1917]"
-                  : stage !== "idle"
-                  ? "border-[#86EFAC] bg-[#F0FDF4] text-[#166534]"
-                  : "border-[#E5DFD3] bg-[#FAF8F5] text-[#78716A]"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                <span>01</span>
-                <Upload className="w-3.5 h-3.5" />
-              </div>
-              <div className="font-semibold text-[#1C1917]">Image Intake</div>
-              <div className="text-[10px] text-[#78716A] mt-0.5">Optical Buffer</div>
-            </div>
-
-            {/* Step 2: Model 1 Gate */}
-            <div
-              className={`p-3 rounded-xl border text-xs transition-all ${
-                stage === "model1"
-                  ? "border-[#D97706] bg-[#FFFBEB] ring-1 ring-[#D97706]"
-                  : stage !== "idle" && stage !== "intake"
-                  ? isDefective
-                    ? "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]"
-                    : "border-[#86EFAC] bg-[#F0FDF4] text-[#166534]"
-                  : "border-[#E5DFD3] bg-[#FAF8F5] text-[#78716A]"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                <span>02</span>
-                <Cpu className="w-3.5 h-3.5" />
-              </div>
-              <div className="font-semibold text-[#1C1917]">Model 1: Gate</div>
-              <div className="text-[10px] text-[#78716A] mt-0.5">
-                {stage === "model1"
-                  ? "Screening..."
-                  : stage !== "idle" && stage !== "intake"
-                  ? isDefective
-                    ? "Defect Flagged"
-                    : "Verified Nominal"
-                  : "Binary Check"}
-              </div>
-            </div>
-
-            {/* Step 3: Model 2 Deep (Or Bypassed if OK) */}
-            <div
-              className={`p-3 rounded-xl border text-xs transition-all ${
-                stage === "model2"
-                  ? "border-[#DC2626] bg-[#FEF2F2] ring-1 ring-[#DC2626]"
-                  : stage !== "idle" && stage !== "intake" && stage !== "model1"
-                  ? isDefective
-                    ? "border-[#FCA5A5] bg-[#FEF2F2] text-[#991B1B]"
-                    : "border-[#E5DFD3] bg-[#FAF8F5] text-[#A8A29E] opacity-60"
-                  : "border-[#E5DFD3] bg-[#FAF8F5] text-[#78716A]"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                <span>03</span>
-                <Layers className="w-3.5 h-3.5" />
-              </div>
-              <div className="font-semibold text-[#1C1917]">
-                {!isDefective && stage !== "idle" && stage !== "intake" && stage !== "model1"
-                  ? "Model 2: Bypassed"
-                  : "Model 2: Deep"}
-              </div>
-              <div className="text-[10px] text-[#78716A] mt-0.5 truncate">
-                {!isDefective && stage !== "idle" && stage !== "intake" && stage !== "model1"
-                  ? "Skipped (Part OK)"
-                  : stage === "model2"
-                  ? "Generating Heatmap"
-                  : isDefective
-                  ? `${defectType}`
-                  : "Grad-CAM Heatmap"}
-              </div>
-            </div>
-
-            {/* Step 4: Process Telemetry */}
-            <div
-              className={`p-3 rounded-xl border text-xs transition-all ${
-                stage === "telemetry"
-                  ? "border-[#D97706] bg-[#FFFBEB] ring-1 ring-[#D97706]"
-                  : stage === "report" || stage === "completed"
-                  ? "border-[#86EFAC] bg-[#F0FDF4] text-[#166534]"
-                  : "border-[#E5DFD3] bg-[#FAF8F5] text-[#78716A]"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                <span>04</span>
-                <Activity className="w-3.5 h-3.5" />
-              </div>
-              <div className="font-semibold text-[#1C1917]">Telemetry Sync</div>
-              <div className="text-[10px] text-[#78716A] mt-0.5">PLC Sensor Corridor</div>
-            </div>
-
-            {/* Step 5: Gemini Synthesis */}
-            <div
-              className={`p-3 rounded-xl border text-xs transition-all ${
-                stage === "report"
-                  ? "border-[#D97706] bg-[#FFFBEB] ring-1 ring-[#D97706]"
-                  : stage === "completed"
-                  ? "border-[#86EFAC] bg-[#F0FDF4] text-[#166534]"
-                  : "border-[#E5DFD3] bg-[#FAF8F5] text-[#78716A]"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                <span>05</span>
-                <Sparkles className="w-3.5 h-3.5 text-[#D97706]" />
-              </div>
-              <div className="font-semibold text-[#1C1917]">Gemini Report</div>
-              <div className="text-[10px] text-[#78716A] mt-0.5">Synthesis & Fixes</div>
-            </div>
-
-            {/* Step 6: Final Result */}
-            <div
-              className={`p-3 rounded-xl border text-xs transition-all ${
-                stage === "completed"
-                  ? isDefective
-                    ? "border-[#DC2626] bg-[#FEF2F2] text-[#991B1B]"
-                    : "border-[#16A34A] bg-[#F0FDF4] text-[#166534]"
-                  : "border-[#E5DFD3] bg-[#FAF8F5] text-[#78716A]"
-              }`}
-            >
-              <div className="flex items-center justify-between text-[10px] font-mono mb-1">
-                <span>06</span>
-                <FileText className="w-3.5 h-3.5" />
-              </div>
-              <div className="font-semibold text-[#1C1917]">Dashboard Dossier</div>
-              <div className="text-[10px] text-[#78716A] mt-0.5">Gate Verdict</div>
-            </div>
-          </div>
-        </div>
-
-        {/* Empty Upload State */}
-        {stage === "idle" && (
-          <div
-            onDragOver={(e) => {
-              e.preventDefault();
-              setIsDragOver(true);
-            }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={handleDrop}
-            onClick={() => fileInputRef.current?.click()}
-            className={`border-2 border-dashed rounded-2xl p-12 text-center flex flex-col items-center justify-center gap-4 cursor-pointer transition-colors ${
-              isDragOver ? "border-[#1C1917] bg-[#F3EFE6]" : "border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#FAF8F5]"
-            }`}
-          >
-            <div className="w-12 h-12 rounded-xl bg-[#FAF8F5] border border-[#E5DFD3] flex items-center justify-center text-[#78716A]">
-              <Upload className="w-6 h-6" />
-            </div>
-            <div>
-              <p className="text-sm font-semibold text-[#1C1917]">
-                Drop component photo here, or click to browse
-              </p>
-              <p className="text-xs text-[#78716A] mt-1">
-                Supports JPG, PNG, WebP • Auto-dispatches through the pipeline
-              </p>
-            </div>
-            <button
-              type="button"
-              className="px-4 py-2 rounded-xl bg-[#1C1917] text-[#FAF8F5] text-xs font-medium shadow-xs hover:bg-[#2C2724] transition-colors"
-            >
-              Select Image
-            </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) runSimulation(f);
-              }}
-              className="hidden"
-            />
-          </div>
-        )}
-
-        {/* Active Inspection Canvas */}
-        {stage !== "idle" && (
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
-            {/* Left: Component Image Canvas */}
-            <div className="lg:col-span-7 bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-4 sm:p-5 shadow-xs space-y-3">
-              <div className="flex items-center justify-between text-xs pb-2 border-b border-[#F2ECE1]">
-                <span className="font-semibold text-[#1C1917] truncate max-w-[240px]">
-                  {uploadedFile?.name || "Component"}
+        {/* =========================================================================
+            THE VISUAL WORKFLOW: 3 CONNECTED HARDWARE STATIONS
+            1. INGESTION WORKSTATION (LEFT)
+            2. SERVER RACK & NEURAL MODELS (CENTER)
+            3. REPORT TERMINAL (RIGHT)
+        ========================================================================= */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center flex-1 my-auto py-2">
+          {/* =======================================================================
+              STATION 1 (3 Cols): INGESTION WORKSTATION COMPUTER
+          ======================================================================= */}
+          <div className="lg:col-span-4 flex flex-col items-center">
+            <div className="w-full bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-4 shadow-xs flex flex-col items-center gap-3 relative transition-all">
+              {/* Station Label */}
+              <div className="w-full flex items-center justify-between text-xs pb-2 border-b border-[#F2ECE1]">
+                <span className="font-bold text-[#1C1917]">1. Ingestion Computer</span>
+                <span
+                  className={`font-mono text-[10px] px-2 py-0.5 rounded-full ${
+                    stage === "ingestion"
+                      ? "bg-[#FFFBEB] text-[#D97706] font-bold"
+                      : stage !== "idle"
+                      ? "bg-[#F0FDF4] text-[#166534]"
+                      : "bg-[#FAF8F5] text-[#78716A]"
+                  }`}
+                >
+                  {stage === "idle" ? "READY" : stage === "ingestion" ? "SCANNING" : "DISPATCHED"}
                 </span>
-
-                {/* View toggles */}
-                <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-lg border border-[#E5DFD3]">
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("image")}
-                    className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                      viewMode === "image" ? "bg-[#1C1917] text-[#FAF8F5]" : "text-[#57534E]"
-                    }`}
-                  >
-                    Image
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("heatmap")}
-                    className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                      viewMode === "heatmap" ? "bg-[#1C1917] text-[#FAF8F5]" : "text-[#57534E]"
-                    }`}
-                  >
-                    Heatmap
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setViewMode("overlay")}
-                    className={`px-2 py-0.5 rounded text-xs font-medium cursor-pointer transition-colors ${
-                      viewMode === "overlay" ? "bg-[#1C1917] text-[#FAF8F5]" : "text-[#57534E]"
-                    }`}
-                  >
-                    Overlay
-                  </button>
-                </div>
               </div>
 
-              {/* Image Frame with Scanning Laser */}
-              <div className="relative w-full aspect-[4/3] rounded-xl overflow-hidden bg-[#111827] flex items-center justify-center">
-                {imageUrl && (
-                  <div className="relative w-full h-full flex items-center justify-center">
-                    {viewMode === "image" ? (
+              {/* Vector Graphic: Computer Workstation Display */}
+              <div className="w-full flex flex-col items-center">
+                {/* Computer Screen Frame */}
+                <div
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(true);
+                  }}
+                  onDragLeave={() => setIsDragOver(false)}
+                  onDrop={handleDrop}
+                  onClick={() => {
+                    if (stage === "idle") fileInputRef.current?.click();
+                  }}
+                  className={`w-full aspect-[4/3] rounded-xl border-4 border-[#1C1917] bg-[#111827] relative overflow-hidden flex items-center justify-center shadow-md transition-colors ${
+                    stage === "idle" ? "cursor-pointer hover:border-[#4B5563]" : ""
+                  }`}
+                >
+                  {/* Inside Computer Screen */}
+                  {!imageSrc ? (
+                    <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
+                      <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white">
+                        <Upload className="w-5 h-5" />
+                      </div>
+                      <span className="text-xs font-semibold text-white">
+                        Drop photo or click
+                      </span>
+                      <span className="text-[10px] text-white/60">
+                        Camera / Sensor Intake
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="relative w-full h-full flex items-center justify-center">
                       <img
-                        src={imageUrl}
-                        alt="Component"
+                        src={imageSrc}
+                        alt="Uploaded"
                         className="w-full h-full object-contain"
                       />
-                    ) : viewMode === "heatmap" && heatmapUrl ? (
-                      <img
-                        src={heatmapUrl}
-                        alt="Heatmap"
-                        className="w-full h-full object-contain mix-blend-screen"
-                      />
-                    ) : (
-                      <div className="relative w-full h-full flex items-center justify-center">
-                        <img
-                          src={imageUrl}
-                          alt="Component"
-                          className="w-full h-full object-contain"
-                        />
-                        {isDefective && heatmapUrl && (stage === "model2" || stage === "telemetry" || stage === "report" || stage === "completed") && (
+
+                      {/* Scanning laser beam passing across monitor during ingestion */}
+                      {stage === "ingestion" && (
+                        <div className="pointer-events-none absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#00E5FF] to-transparent shadow-[0_0_15px_#00E5FF] z-20 animate-laser-sweep" />
+                      )}
+                    </div>
+                  )}
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) processImage(f);
+                    }}
+                    className="hidden"
+                  />
+                </div>
+
+                {/* Computer Stand Base Graphic */}
+                <div className="w-12 h-3 bg-[#9CA3AF] rounded-b-md shadow-xs" />
+                <div className="w-24 h-1.5 bg-[#4B5563] rounded-full shadow-2xs" />
+              </div>
+            </div>
+          </div>
+
+          {/* =======================================================================
+              STATION 2 (4 Cols): SERVER RACK & EMBEDDED NEURAL MODELS
+          ======================================================================= */}
+          <div className="lg:col-span-4 flex flex-col items-center">
+            <div className="w-full bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-4 shadow-xs flex flex-col gap-3 relative">
+              {/* Station Label */}
+              <div className="w-full flex items-center justify-between text-xs pb-2 border-b border-[#F2ECE1]">
+                <span className="font-bold text-[#1C1917]">2. AI Server & Models</span>
+                <span
+                  className={`font-mono text-[10px] px-2 py-0.5 rounded-full ${
+                    stage === "model1" || stage === "model2" || stage === "telemetry"
+                      ? "bg-[#FFFBEB] text-[#D97706] font-bold"
+                      : stage === "report"
+                      ? "bg-[#F0FDF4] text-[#166534]"
+                      : "bg-[#FAF8F5] text-[#78716A]"
+                  }`}
+                >
+                  {stage === "model1"
+                    ? "MODEL 1 GATE"
+                    : stage === "model2"
+                    ? "MODEL 2 DEEP"
+                    : stage === "telemetry"
+                    ? "TELEMETRY SYNC"
+                    : stage === "report"
+                    ? "COMPLETE"
+                    : "STANDBY"}
+                </span>
+              </div>
+
+              {/* Graphic: Server Chassis with Modular Neural Units */}
+              <div className="w-full bg-[#1F2937] border-2 border-[#374151] rounded-xl p-3 flex flex-col gap-2.5 shadow-md">
+                {/* Server Bay 1: Model 1 Binary Gatekeeper */}
+                <div
+                  className={`p-2.5 rounded-lg border text-xs flex items-center justify-between transition-all ${
+                    stage === "model1"
+                      ? "border-[#38BDF8] bg-[#0C4A6E]/50 text-white shadow-[0_0_10px_rgba(56,189,248,0.3)]"
+                      : stage !== "idle" && stage !== "ingestion"
+                      ? isDefective
+                        ? "border-[#EF4444] bg-[#7F1D1D]/40 text-white"
+                        : "border-[#22C55E] bg-[#14532D]/40 text-white"
+                      : "border-[#4B5563] bg-[#111827] text-white/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Cpu className={`w-4 h-4 ${stage === "model1" ? "animate-spin text-[#38BDF8]" : ""}`} />
+                    <div>
+                      <div className="font-bold text-[11px]">Model 1: Binary Gate</div>
+                      <div className="text-[10px] opacity-75">ResNet-18 Screening</div>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-mono font-bold">
+                    {stage === "model1"
+                      ? "EVALUATING..."
+                      : stage !== "idle" && stage !== "ingestion"
+                      ? isDefective
+                        ? "⚠ DEFECT"
+                        : "✓ NOMINAL"
+                      : "IDLE"}
+                  </span>
+                </div>
+
+                {/* Animated Branching Conduit Graphic between Model 1 and Model 2 */}
+                <div className="w-full flex items-center justify-between text-[10px] font-mono px-2 py-0.5">
+                  <span
+                    className={`flex items-center gap-1 transition-colors ${
+                      !isDefective && (stage === "telemetry" || stage === "report")
+                        ? "text-[#22C55E] font-bold"
+                        : "text-white/30"
+                    }`}
+                  >
+                    {!isDefective && (stage === "telemetry" || stage === "report") ? "✓ Bypass (Part OK)" : "Bypass Corridor"}
+                  </span>
+                  <span
+                    className={`flex items-center gap-1 transition-colors ${
+                      isDefective && (stage === "model2" || stage === "telemetry" || stage === "report")
+                        ? "text-[#EF4444] font-bold"
+                        : "text-white/30"
+                    }`}
+                  >
+                    {isDefective ? "↓ Defect Route" : "Defect Route"}
+                  </span>
+                </div>
+
+                {/* Server Bay 2: Model 2 Deep Classifier & Heatmap (Bypassed if OK) */}
+                <div
+                  className={`p-2.5 rounded-lg border text-xs flex items-center justify-between transition-all ${
+                    stage === "model2"
+                      ? "border-[#EF4444] bg-[#7F1D1D]/60 text-white shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                      : isDefective && (stage === "telemetry" || stage === "report")
+                      ? "border-[#EF4444] bg-[#7F1D1D]/40 text-white"
+                      : !isDefective && (stage === "telemetry" || stage === "report")
+                      ? "border-[#4B5563] bg-[#111827]/40 text-white/30"
+                      : "border-[#4B5563] bg-[#111827] text-white/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Flame className={`w-4 h-4 ${stage === "model2" ? "text-[#EF4444] animate-pulse" : ""}`} />
+                    <div>
+                      <div className="font-bold text-[11px]">
+                        {!isDefective && (stage === "telemetry" || stage === "report")
+                          ? "Model 2: Bypassed"
+                          : "Model 2: Deep"}
+                      </div>
+                      <div className="text-[10px] opacity-75">
+                        {!isDefective && (stage === "telemetry" || stage === "report")
+                          ? "Skipped (Part OK)"
+                          : "Grad-CAM Heatmap"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-mono font-bold capitalize">
+                    {stage === "model2"
+                      ? "MAPPING..."
+                      : isDefective && (stage === "telemetry" || stage === "report")
+                      ? defectType
+                      : !isDefective && (stage === "telemetry" || stage === "report")
+                      ? "SKIPPED"
+                      : "IDLE"}
+                  </span>
+                </div>
+
+                {/* Server Bay 3: Process Telemetry Corroborator */}
+                <div
+                  className={`p-2.5 rounded-lg border text-xs flex items-center justify-between transition-all ${
+                    stage === "telemetry"
+                      ? "border-[#F59E0B] bg-[#78350F]/50 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+                      : stage === "report"
+                      ? "border-[#22C55E] bg-[#14532D]/40 text-white"
+                      : "border-[#4B5563] bg-[#111827] text-white/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <Activity className={`w-4 h-4 ${stage === "telemetry" ? "text-[#F59E0B] animate-pulse" : ""}`} />
+                    <div>
+                      <div className="font-bold text-[11px]">Process Telemetry</div>
+                      <div className="text-[10px] opacity-75">PLC 6-Axis Sensors</div>
+                    </div>
+                  </div>
+
+                  <span className="text-[10px] font-mono font-bold">
+                    {stage === "telemetry"
+                      ? "CORROBORATING..."
+                      : stage === "report"
+                      ? culpritSensor
+                        ? "DRIFT DETECTED"
+                        : "ALL NOMINAL"
+                      : "IDLE"}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* =======================================================================
+              STATION 3 (5 Cols): INSPECTOR TABLET & REPORT OUTPUT
+          ======================================================================= */}
+          <div className="lg:col-span-4 flex flex-col items-center">
+            <div className="w-full bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-4 shadow-xs flex flex-col gap-3 relative transition-all">
+              {/* Station Label */}
+              <div className="w-full flex items-center justify-between text-xs pb-2 border-b border-[#F2ECE1]">
+                <span className="font-bold text-[#1C1917]">3. Report Terminal</span>
+                <span
+                  className={`font-mono text-[10px] px-2 py-0.5 rounded-full ${
+                    stage === "report"
+                      ? isDefective
+                        ? "bg-[#FEF2F2] text-[#991B1B] font-bold"
+                        : "bg-[#F0FDF4] text-[#166534] font-bold"
+                      : "bg-[#FAF8F5] text-[#78716A]"
+                  }`}
+                >
+                  {stage === "report" ? "FINAL DOSSIER" : "AWAITING"}
+                </span>
+              </div>
+
+              {/* Vector Graphic: Inspector Tablet / Dossier Slate */}
+              <div className="w-full bg-[#FAF8F5] border-2 border-[#DDD5C7] rounded-xl p-3 flex flex-col gap-3 shadow-inner min-h-[300px]">
+                {stage !== "report" ? (
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-[#78716A] gap-2">
+                    <FileText className="w-8 h-8 opacity-40" />
+                    <span className="text-xs font-medium">Awaiting Pipeline Results</span>
+                    <span className="text-[10px] opacity-75">
+                      The generated diagnosis and overlays will display here.
+                    </span>
+                  </div>
+                ) : (
+                  /* Finalized Visual Dossier */
+                  <div className="flex flex-col gap-3">
+                    {/* Processed Component Image with Heatmap Toggle */}
+                    <div className="relative w-full aspect-[16/9] rounded-lg overflow-hidden bg-[#111827] flex items-center justify-center border border-[#E5DFD3]">
+                      {imageSrc && (
+                        <div className="relative w-full h-full flex items-center justify-center">
                           <img
-                            src={heatmapUrl}
-                            alt="Thermal Overlay"
-                            className="absolute inset-0 w-full h-full object-contain mix-blend-screen opacity-70 pointer-events-none"
+                            src={imageSrc}
+                            alt="Component"
+                            className="w-full h-full object-contain"
                           />
-                        )}
-                      </div>
-                    )}
+                          {isDefective && heatmapSrc && overlayActive && (
+                            <img
+                              src={heatmapSrc}
+                              alt="Heatmap"
+                              className="absolute inset-0 w-full h-full object-contain mix-blend-screen opacity-70 pointer-events-none"
+                            />
+                          )}
+                        </div>
+                      )}
 
-                    {/* Scanning Laser Line during Model 1 and Model 2 processing */}
-                    {(stage === "intake" || stage === "model1" || stage === "model2") && (
-                      <div className="pointer-events-none absolute left-0 right-0 h-0.5 bg-[#38BDF8] shadow-[0_0_12px_#38BDF8] z-20 animate-laser-sweep" />
-                    )}
+                      {/* Overlay Toggle Button */}
+                      {isDefective && heatmapSrc && (
+                        <button
+                          type="button"
+                          onClick={() => setOverlayActive((prev) => !prev)}
+                          className="absolute bottom-2 right-2 px-2 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] text-white font-medium hover:bg-black/90 cursor-pointer"
+                        >
+                          {overlayActive ? "Heatmap On" : "Heatmap Off"}
+                        </button>
+                      )}
+                    </div>
 
-                    {/* Clean Status Badge on Image */}
-                    {stage !== "intake" && stage !== "model1" && (
-                      <div className="absolute top-3 right-3 z-20">
+                    {/* Gate Verdict Badge */}
+                    <div
+                      className={`p-2.5 rounded-lg border flex items-center justify-between text-xs ${
+                        isDefective
+                          ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                          : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-1.5 font-bold">
                         {isDefective ? (
-                          <div className="bg-[#FEF2F2]/95 border border-[#FCA5A5] text-[#991B1B] px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs">
-                            <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626]" />
-                            <span>{defectType.toUpperCase()} ({confidence.toFixed(0)}%)</span>
-                          </div>
+                          <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
                         ) : (
-                          <div className="bg-[#F0FDF4]/95 border border-[#86EFAC] text-[#166534] px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 shadow-xs">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
-                            <span>NOMINAL PASS</span>
-                          </div>
+                          <CheckCircle2 className="w-4 h-4 text-[#16A34A]" />
                         )}
+                        <span>{isDefective ? `DEFECT: ${defectType.toUpperCase()}` : "NOMINAL PASS"}</span>
                       </div>
-                    )}
+                      <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-white/70">
+                        DECISION: {gateVerdict}
+                      </span>
+                    </div>
+
+                    {/* Executive Report Summary */}
+                    <div className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#E5DFD3] text-xs space-y-1">
+                      <div className="font-bold text-[#1C1917] text-[11px]">Executive Summary</div>
+                      <p className="text-[11px] text-[#57534E] leading-relaxed">
+                        {reportSummary}
+                      </p>
+                    </div>
+
+                    {/* Action: Open in Studio */}
+                    <Link
+                      href="/dashboard"
+                      className="w-full py-2 px-3 rounded-lg bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] font-semibold text-center text-xs transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                    >
+                      <span>Open in Studio Dashboard</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </Link>
                   </div>
                 )}
               </div>
             </div>
-
-            {/* Right: Active Stage Details */}
-            <div className="lg:col-span-5 bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
-              <div className="flex items-center justify-between pb-3 border-b border-[#F2ECE1]">
-                <h3 className="text-xs font-bold text-[#1C1917] uppercase tracking-wider">
-                  {stage === "intake"
-                    ? "Stage 1: Image Ingestion"
-                    : stage === "model1"
-                    ? "Stage 2: Model 1 Gate"
-                    : stage === "model2"
-                    ? "Stage 3: Model 2 Classification"
-                    : stage === "telemetry"
-                    ? "Stage 4: Telemetry Sync"
-                    : stage === "report"
-                    ? "Stage 5: Gemini Report"
-                    : "Inspection Completed"}
-                </h3>
-
-                <span
-                  className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full ${
-                    stage === "completed"
-                      ? isDefective
-                        ? "bg-[#FEF2F2] text-[#991B1B]"
-                        : "bg-[#F0FDF4] text-[#166534]"
-                      : "bg-[#FAF8F5] text-[#78716A] border border-[#E5DFD3]"
-                  }`}
-                >
-                  {stage.toUpperCase()}
-                </span>
-              </div>
-
-              {/* Stage: Model 1 */}
-              {(stage === "intake" || stage === "model1") && (
-                <div className="space-y-3 text-xs">
-                  <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E5DFD3] space-y-1">
-                    <div className="text-[11px] text-[#78716A]">Binary Screening Model</div>
-                    <div className="font-semibold text-[#1C1917]">ResNet-18 Gatekeeper</div>
-                    <p className="text-[11px] text-[#57534E] pt-1">
-                      Evaluates surface matrix. An OK part skips Model 2 directly to telemetry; a defective part routes to deep classification.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Stage: Model 2 */}
-              {stage === "model2" && (
-                <div className="space-y-3 text-xs">
-                  <div className="p-3 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] space-y-1">
-                    <div className="text-[11px] text-[#991B1B]">Deep Classifier & Heatmap</div>
-                    <div className="font-semibold text-[#991B1B] capitalize">{defectType} Detected</div>
-                    <p className="text-[11px] text-[#7F1D1D] pt-1">
-                      Generating Grad-CAM thermal gradient layer and localized bounding boxes over surface voids.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Stage: Telemetry */}
-              {stage === "telemetry" && (
-                <div className="space-y-3 text-xs">
-                  <div className="flex items-center justify-between text-[11px] text-[#78716A]">
-                    <span>PLC Process Telemetry</span>
-                    <span>MongoDB Corroboration</span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    {(result?.telemetry || []).slice(0, 4).map((sensor) => (
-                      <div
-                        key={sensor.id}
-                        className={`p-2.5 rounded-xl border text-[11px] space-y-0.5 ${
-                          sensor.isOutOfTolerance
-                            ? "bg-[#FEF2F2] border-[#FCA5A5]"
-                            : "bg-[#FAF8F5] border-[#E5DFD3]"
-                        }`}
-                      >
-                        <div className="text-[#78716A] truncate">{sensor.name}</div>
-                        <div
-                          className={`font-mono font-bold ${
-                            sensor.isOutOfTolerance ? "text-[#DC2626]" : "text-[#1C1917]"
-                          }`}
-                        >
-                          {sensor.recordedValue} {sensor.unit}
-                        </div>
-                        <span
-                          className={`text-[10px] ${
-                            sensor.isOutOfTolerance ? "text-[#DC2626] font-semibold" : "text-[#166534]"
-                          }`}
-                        >
-                          {sensor.isOutOfTolerance ? "Deviation" : "Nominal"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Stage: Report & Completed */}
-              {(stage === "report" || stage === "completed") && (
-                <div className="space-y-3 text-xs">
-                  <div
-                    className={`p-3 rounded-xl border flex items-center justify-between gap-3 ${
-                      isDefective ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]" : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-                    }`}
-                  >
-                    <div>
-                      <div className="text-[10px] uppercase font-bold tracking-wider">Gate Decision</div>
-                      <div className="text-sm font-bold mt-0.5">{gateDecision}</div>
-                    </div>
-                    <span className="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-white/70">
-                      {isDefective ? "Quarantine" : "Cleared"}
-                    </span>
-                  </div>
-
-                  {/* Summary */}
-                  <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#E5DFD3] space-y-1">
-                    <span className="font-semibold text-[#1C1917] text-[11px]">Executive Briefing</span>
-                    <p className="text-[#57534E] text-[11px] leading-relaxed">{summary}</p>
-                  </div>
-
-                  {/* Setpoint fix if defect */}
-                  {Array.isArray(rootCause?.parameter_modifications) && rootCause.parameter_modifications.length > 0 && (
-                    <div className="p-2.5 rounded-xl bg-[#FFFDF5] border border-[#FDE68A] space-y-1 text-xs">
-                      <div className="font-semibold text-[#92400E] text-[11px] flex items-center gap-1">
-                        <Gauge className="w-3.5 h-3.5 text-[#D97706]" />
-                        <span>Suggested Modification</span>
-                      </div>
-                      <div className="text-[11px] text-[#78716A]">
-                        {String((rootCause.parameter_modifications[0] as Record<string, unknown>)?.instruction || "")}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Action Link */}
-                  {stage === "completed" && (
-                    <div className="pt-2">
-                      <Link
-                        href="/dashboard"
-                        className="w-full py-2 px-3 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] font-semibold text-center text-xs transition-colors shadow-xs flex items-center justify-center gap-1.5"
-                      >
-                        <span>Open in Inspection Studio</span>
-                        <ExternalLink className="w-3.5 h-3.5" />
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
           </div>
-        )}
+        </div>
       </main>
     </div>
   );

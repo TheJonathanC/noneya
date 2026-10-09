@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 
-const DEFAULT_BACKEND_BASE = process.env.CLASSIFY_API_URL || "http://127.0.0.1:8000";
+const DEFAULT_BACKEND_BASE = process.env.CLASSIFY_API_URL || "http://82.112.231.102";
 const REMOTE_BACKEND_BASE = "http://82.112.231.102";
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 const ALLOWED_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|svg|bmp|tiff)$/i;
@@ -71,9 +71,9 @@ async function dispatchToBackend(
 ): Promise<{ data: Record<string, unknown> | null; error: string | null; target: string | null }> {
   const candidateUrls = [
     DEFAULT_BACKEND_BASE,
+    REMOTE_BACKEND_BASE,
     "http://127.0.0.1:8000",
     "http://localhost:8000",
-    REMOTE_BACKEND_BASE,
   ];
 
   const uniqueUrls = Array.from(new Set(candidateUrls.filter(Boolean)));
