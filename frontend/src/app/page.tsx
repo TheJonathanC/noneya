@@ -17,29 +17,29 @@ const STAGES = [
     step: "01",
     icon: Camera,
     title: "Good or bad?",
-    tech: "Model 1 · ResNet-18 binary",
-    body: "Every photo is checked first. A part that looks fine goes straight to “All Good” and nothing else runs.",
+    tech: "Model 1 · EfficientNet + Grad-CAM",
+    body: "Every photo is filtered first using EfficientNet for binary OK vs. Defective screening, combined with Grad-CAM for anomaly localization. Nominal parts skip downstream inspection.",
   },
   {
     step: "02",
     icon: Tags,
     title: "What's wrong?",
-    tech: "Model 2 · ResNet-18 multi-label",
-    body: "Bad parts are sorted into defect types. A part can have more than one. The defect is outlined on the photo, with a heatmap of where the model looked.",
+    tech: "Model 2 · ResNet-18 (or YOLOv8-seg)",
+    body: "Defective components are categorized across 6 defect classes using ResNet-18 with attention masking (or YOLOv8-seg for single-pass detection, categorization, and segmentation).",
   },
   {
     step: "03",
     icon: Activity,
     title: "Why did it happen?",
-    tech: "Telemetry + Model 3 · XGBoost",
-    body: "Six machine readings from the moment the part was made are compared with normal. The model points at the reading most likely behind the defect.",
+    tech: "Model 3 · XGBoost Root-Cause",
+    body: "XGBoost correlates the factory telemetry generator with historical casting datasets to isolate the primary culprit sensor and quantify parameter deviation.",
   },
   {
     step: "04",
     icon: FileText,
-    title: "Tell me in plain words",
-    tech: "Gemini 1.5 Flash",
-    body: "Findings are turned into a three-sentence incident report: what was found, the likely cause, and what to do with the part.",
+    title: "LLM Layer & Reporting",
+    tech: "Gemini 1.5 Flash (2-Step Flow)",
+    body: "Gemini 1.5 Flash first structures raw XGBoost diagnostic signals into clean JSON, followed by a final Gemini call synthesizing the authoritative 3-sentence incident report.",
   },
 ];
 
@@ -224,10 +224,10 @@ export default function LandingPage() {
                   <p className="text-[11px] font-mono text-[#78716A]">POST /api/inspect</p>
                   <ul className="space-y-1.5 text-xs">
                     {[
-                      "Model 1: ResNet-18, OK vs defect",
-                      "Model 2: ResNet-18, six defect classes",
-                      "Grad-CAM heatmap + defect segmentation",
-                      "Telemetry generator + Model 3 (XGBoost)",
+                      "Model 1: EfficientNet (binary OK vs. Defective) + Grad-CAM",
+                      "Model 2: ResNet-18 (6 defect classes with attention masking) or YOLOv8-seg",
+                      "Model 3: XGBoost root-cause with factory telemetry & historical data",
+                      "LLM Layer: Gemini 1.5 Flash (JSON structurer + 3-sentence incident report)",
                     ].map((line) => (
                       <li
                         key={line}
@@ -255,11 +255,10 @@ export default function LandingPage() {
                   </div>
                   <div className="rounded-xl border border-[#E5DFD3] bg-[#FAF8F5] p-4 space-y-1.5">
                     <div className="flex items-center gap-2 text-sm font-semibold">
-                      <Sparkles aria-hidden="true" className="w-4 h-4" /> Gemini
+                      <Sparkles aria-hidden="true" className="w-4 h-4" /> Gemini 1.5 Flash
                     </div>
                     <p className="text-xs text-[#57534E] leading-relaxed">
-                      Writes the three-sentence incident report. A fixed template is used if the
-                      API is unavailable.
+                      Two-stage pipeline: first structures XGBoost outputs into clean JSON, then generates the final 3-sentence incident report.
                     </p>
                   </div>
                 </div>

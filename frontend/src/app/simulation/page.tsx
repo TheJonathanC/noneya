@@ -480,14 +480,14 @@ export default function SimulationPage() {
                   <div className="flex items-center gap-2">
                     <Cpu className={`w-4 h-4 ${stage === "model1" ? "animate-spin text-[#38BDF8]" : ""}`} />
                     <div>
-                      <div className="font-bold text-[11px]">Model 1: Binary Gate</div>
-                      <div className="text-[10px] opacity-75">ResNet-18 Screening</div>
+                      <div className="font-bold text-[11px]">Model 1: EfficientNet</div>
+                      <div className="text-[10px] opacity-75">Binary Gate + Grad-CAM</div>
                     </div>
                   </div>
 
                   <span className="text-[10px] font-mono font-bold">
                     {stage === "model1"
-                      ? "EVALUATING..."
+                      ? "FILTERING..."
                       : stage !== "idle" && stage !== "ingestion" && currentItem
                       ? currentItem.isDefective
                         ? "⚠ DEFECT"
@@ -534,17 +534,17 @@ export default function SimulationPage() {
                     <Flame className={`w-4 h-4 ${stage === "model2" ? "text-[#EF4444] animate-pulse" : ""}`} />
                     <div>
                       <div className="font-bold text-[11px]">
-                        {isBypassing ? "Model 2: Bypassed" : "Model 2: Deep Classifier"}
+                        {isBypassing ? "Model 2: Bypassed" : "Model 2: ResNet-18"}
                       </div>
                       <div className="text-[10px] opacity-75">
-                        {isBypassing ? "Skipped (Part OK)" : "Grad-CAM Heatmap"}
+                        {isBypassing ? "Skipped (Part OK)" : "6 Classes • Attention Mask"}
                       </div>
                     </div>
                   </div>
 
                   <span className="text-[10px] font-mono font-bold capitalize">
                     {stage === "model2"
-                      ? "CLASSIFYING..."
+                      ? "CATEGORIZING..."
                       : isRoutingDefect && currentItem
                       ? currentItem.defectType
                       : isBypassing
@@ -553,7 +553,7 @@ export default function SimulationPage() {
                   </span>
                 </div>
 
-                {/* Server Bay 3: Process Telemetry Corroborator */}
+                {/* Server Bay 3: Model 3 XGBoost & LLM Layer */}
                 <div
                   className={`p-2.5 rounded-lg border text-xs flex items-center justify-between transition-all ${
                     stage === "telemetry"
@@ -566,14 +566,14 @@ export default function SimulationPage() {
                   <div className="flex items-center gap-2">
                     <Activity className={`w-4 h-4 ${stage === "telemetry" ? "text-[#F59E0B] animate-pulse" : ""}`} />
                     <div>
-                      <div className="font-bold text-[11px]">Process Telemetry</div>
-                      <div className="text-[10px] opacity-75">PLC 6-Axis Sensors</div>
+                      <div className="font-bold text-[11px]">Model 3: XGBoost + Gemini</div>
+                      <div className="text-[10px] opacity-75">Telemetry Root-Cause & LLM</div>
                     </div>
                   </div>
 
                   <span className="text-[10px] font-mono font-bold">
                     {stage === "telemetry"
-                      ? "CORROBORATING..."
+                      ? "ANALYZING..."
                       : stage === "report" && currentItem
                       ? currentItem.sensorReadings.some((s) => s.drift)
                         ? "DRIFT DETECTED"
