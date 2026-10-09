@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { checkRateLimit, getClientIp } from "@/lib/rate-limiter";
 
 const DEFAULT_BACKEND_BASE = process.env.CLASSIFY_API_URL || "http://127.0.0.1:8000";
 const REMOTE_BACKEND_BASE = "http://82.112.231.102";
@@ -107,6 +108,28 @@ async function dispatchToBackend(
 
 export async function POST(request: NextRequest) {
   const startTime = performance.now();
+
+  // Rate Limiting Check (30 batch requests per minute per IP)
+  const clientIp = getClientIp(request.headers);
+  const rateLimitResult = checkRateLimit(clientIp, { limit: 30, windowMs: 60 * 1000 });
+  if (!rateLimitResult.success) {
+    return NextResponse.json(
+      {
+        status: "error",
+        code: "RATE_LIMIT_EXCEEDED",
+        error: `Rate limit exceeded. Please wait ${rateLimitResult.retryAfterSeconds} seconds before submitting another inspection request.`,
+        retry_after: rateLimitResult.retryAfterSeconds,
+      },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(rateLimitResult.retryAfterSeconds),
+          "X-RateLimit-Limit": String(rateLimitResult.limit),
+          "X-RateLimit-Remaining": String(rateLimitResult.remaining),
+        },
+      }
+    );
+  }
 
   try {
     const searchParams = request.nextUrl.searchParams;

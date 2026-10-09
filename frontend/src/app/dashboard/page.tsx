@@ -31,7 +31,7 @@ export default function QualityInspectionDashboard() {
   const activeItem = resultItems[selectedIndex] || resultItems[0] || null;
   const activeRawJson = rawJsons[selectedIndex] || null;
 
-  // Handle adding files to staged intake queue
+  // Handle adding files to staged intake queue (single batch set at a time)
   const handleAddFiles = useCallback((files: File[]) => {
     setErrorState(null);
     const newItems: StagedItem[] = files.map((file, i) => ({
@@ -43,14 +43,19 @@ export default function QualityInspectionDashboard() {
     }));
 
     setStagedItems((prev) => {
-      if (mode === "single") {
-        return [newItems[0]];
+      // If a batch is already staged or analyzed, replace or lock to ensure a single batch set
+      if (prev.length > 0 || resultItems.length > 0) {
+        // Reset previously analyzed results when loading a new batch set
+        setResultItems([]);
+        setRawJsons([]);
+        setSelectedIndex(0);
+        return newItems.slice(0, 10);
       }
-      return [...prev, ...newItems].slice(0, 10);
+      return newItems.slice(0, 10);
     });
 
     setActiveStep(1);
-  }, [mode]);
+  }, [resultItems.length]);
 
   // Remove individual staged file
   const handleRemoveStagedItem = useCallback((id: string) => {

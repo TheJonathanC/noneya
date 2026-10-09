@@ -139,55 +139,69 @@ export function LinenIntake({
         </div>
 
         {/* Dropzone */}
-        <div
-          role="button"
-          tabIndex={0}
-          aria-label={
-            mode === "single"
-              ? "Upload component photo or browse"
-              : "Upload batch photos or browse"
-          }
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              fileInputRef.current?.click();
-            }
-          }}
-          className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-[border-color,background-color,transform] duration-150 active:scale-[0.99] flex flex-col items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1C1917] ${
-            isDragging
-              ? "border-[#1C1917] bg-[#F3EFE6] scale-[1.01]"
-              : "border-[#DDD5C7] hover:border-[#1C1917] bg-[#FFFFFF] hover:bg-[#FAF8F5]"
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple={mode === "batch"}
-            accept="image/*"
-            aria-label="Component image file input"
-            onChange={handleFileInputChange}
-            className="hidden"
-          />
-
-          <div className="w-9 h-9 rounded-full bg-[#FAF8F5] border border-[#E5DFD3] text-[#57534E] flex items-center justify-center">
-            <Upload aria-hidden="true" className="w-4 h-4" />
-          </div>
-
-          <div className="space-y-0.5">
-            <div className="text-xs font-semibold text-[#1C1917]">
-              {mode === "single"
-                ? "Drop image here or click to browse"
-                : "Drop multiple images or browse"}
+        {stagedItems.length > 0 ? (
+          <div className="border border-[#E5DFD3] rounded-2xl p-4 bg-[#FFFFFF] text-center space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-[#1C1917]">
+                Batch Set Loaded ({stagedItems.length} image{stagedItems.length > 1 ? "s" : ""})
+              </span>
+              <button
+                type="button"
+                onClick={onClearQueue}
+                className="text-[11px] font-medium text-[#78716A] hover:text-[#991B1B] transition-colors cursor-pointer"
+              >
+                Clear to Upload New
+              </button>
             </div>
-            <p className="text-[11px] text-[#78716A]">
-              PNG, JPG, WEBP • Max 25 MB
+            <p className="text-[11px] text-[#78716A] text-left leading-relaxed">
+              Batch intake is locked to this current set. To upload a different batch, clear the current queue first or replace with new files.
             </p>
           </div>
-        </div>
+        ) : (
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Upload batch photos or browse"
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                fileInputRef.current?.click();
+              }
+            }}
+            className={`border-2 border-dashed rounded-2xl p-5 text-center cursor-pointer transition-[border-color,background-color,transform] duration-150 active:scale-[0.99] flex flex-col items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1C1917] ${
+              isDragging
+                ? "border-[#1C1917] bg-[#F3EFE6] scale-[1.01]"
+                : "border-[#DDD5C7] hover:border-[#1C1917] bg-[#FFFFFF] hover:bg-[#FAF8F5]"
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple={true}
+              accept="image/*"
+              aria-label="Component image file input"
+              onChange={handleFileInputChange}
+              className="hidden"
+            />
+
+            <div className="w-9 h-9 rounded-full bg-[#FAF8F5] border border-[#E5DFD3] text-[#57534E] flex items-center justify-center">
+              <Upload aria-hidden="true" className="w-4 h-4" />
+            </div>
+
+            <div className="space-y-0.5">
+              <div className="text-xs font-semibold text-[#1C1917]">
+                Drop batch images here or browse
+              </div>
+              <p className="text-[11px] text-[#78716A]">
+                PNG, JPG, WEBP • Max 25 MB
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Error Notice */}
         {intakeError && (

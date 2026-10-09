@@ -359,7 +359,7 @@ export function LinenResults({
                         itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
                       }`}
                     />
-                    <span>Part {idx + 1}</span>
+                    <span>Image {idx + 1}</span>
                   </button>
                 );
               })}
@@ -620,11 +620,11 @@ export function LinenResults({
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
-                <span>Batch Parts Breakdown</span>
-                <span className="text-xs font-mono text-[#78716A]">({allItems.length} components)</span>
+                <span>Batch Images Breakdown</span>
+                <span className="text-xs font-mono text-[#78716A]">({allItems.length} images)</span>
               </h3>
               <span className="text-xs text-[#78716A]">
-                Click any part to expand its photos and defect analysis
+                Click any image to expand its photos and defect analysis
               </span>
             </div>
 
@@ -665,7 +665,7 @@ export function LinenResults({
                         />
                         <div className="truncate">
                           <span className="font-bold text-xs text-[#1C1917]">
-                            Part {idx + 1} ({item.partId})
+                            Image {idx + 1} ({item.partId})
                           </span>
                           <span className="text-[11px] text-[#78716A] ml-2">
                             {item.fileName ? item.fileName : item.serialNumber}
