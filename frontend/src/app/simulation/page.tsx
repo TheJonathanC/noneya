@@ -18,6 +18,7 @@ import {
   Play,
 } from "lucide-react";
 import { LinenHeader } from "@/components/linen/LinenHeader";
+import { DotSwarm } from "dots-swarm";
 import { inspectBatchPhotos, inspectSinglePhoto, generateFallbackInspection } from "@/lib/api";
 import { InspectionItem } from "@/lib/inspection-adapter";
 
@@ -305,14 +306,22 @@ export default function SimulationPage() {
                   {/* Inside Computer Screen */}
                   {batchItems.length === 0 ? (
                     <div className="flex flex-col items-center justify-center gap-2 p-4 text-center">
-                      <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white">
-                        <Upload className="w-5 h-5" />
+                      <div className="w-12 h-12 relative flex items-center justify-center">
+                        <DotSwarm
+                          shape="lattice"
+                          count={240}
+                          color="#00E5FF"
+                          speed={0.9}
+                          dotSize={1.5}
+                          choreography="flow"
+                          className="w-full h-full"
+                        />
                       </div>
                       <span className="text-xs font-semibold text-white">
-                        Drop photos or click
+                        Drop photos or click to ingest
                       </span>
                       <span className="text-[10px] text-white/60">
-                        Upload single or multiple batch photos
+                        Camera / optical sensor batch intake
                       </span>
                     </div>
                   ) : (
@@ -434,9 +443,27 @@ export default function SimulationPage() {
               <div className="w-full bg-[#1F2937] border-2 border-[#374151] rounded-xl p-3 flex flex-col gap-2.5 shadow-md flex-1 justify-center">
                 {/* Visual Pipeline Transit Indicator */}
                 {currentItem && (
-                  <div className="flex items-center justify-between px-2 py-1 bg-[#111827] rounded-md border border-[#374151] text-[10px] font-mono text-white/80">
-                    <span className="flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-[#00E5FF] animate-ping" />
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-[#111827] rounded-md border border-[#374151] text-[10px] font-mono text-white/80">
+                    <span className="flex items-center gap-2">
+                      <div className="w-4 h-4 shrink-0 relative flex items-center justify-center">
+                        <DotSwarm
+                          shape={
+                            stage === "model1"
+                              ? "atom"
+                              : stage === "model2"
+                              ? "spark"
+                              : stage === "telemetry"
+                              ? "equalizer"
+                              : "loader"
+                          }
+                          count={140}
+                          color="#00E5FF"
+                          speed={1.4}
+                          dotSize={1.5}
+                          choreography="flow"
+                          className="w-full h-full"
+                        />
+                      </div>
                       <span>Component #{activeItemIndex + 1} In Transit</span>
                     </span>
                     <span className="text-[#00E5FF] font-bold">
@@ -592,12 +619,28 @@ export default function SimulationPage() {
               {/* Vector Graphic: Inspector Tablet / Dossier Slate */}
               <div className="w-full flex-1 bg-[#FAF8F5] border-2 border-[#DDD5C7] rounded-xl p-3 flex flex-col justify-between gap-3 shadow-inner">
                 {stage !== "report" || !currentItem ? (
-                  <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-[#78716A] gap-2">
-                    <FileText className="w-8 h-8 opacity-40" />
-                    <span className="text-xs font-medium">Awaiting Pipeline Results</span>
-                    <span className="text-[10px] opacity-75">
-                      Completed diagnosis, heatmap, and telemetry will display here.
-                    </span>
+                  <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-[#78716A] gap-3">
+                    <div className="w-14 h-14 relative flex items-center justify-center">
+                      <DotSwarm
+                        shape={stage === "idle" ? "equalizer" : "orb"}
+                        count={300}
+                        color="#78716A"
+                        speed={0.8}
+                        dotSize={1.6}
+                        choreography="flow"
+                        className="w-full h-full"
+                      />
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-[#1C1917]">
+                        {stage === "idle" ? "Awaiting Batch Intake" : "Synthesizing Diagnostic Dossier..."}
+                      </div>
+                      <div className="text-[10px] text-[#78716A] mt-0.5">
+                        {stage === "idle"
+                          ? "Components will pass through neural stages and render here."
+                          : "Grad-CAM segmentation & PLC telemetry active."}
+                      </div>
+                    </div>
                   </div>
                 ) : (
                   /* Finalized Visual Dossier */
