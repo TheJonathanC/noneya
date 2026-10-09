@@ -417,9 +417,16 @@ export function ProcessTelemetryDossier({
   const activeSensor = resolvedSensors.find((s) => s.key === selectedSensorKey);
   const activeSeries = activeSensor ? getHistoricalSeries(activeSensor) : [];
 
+  const scrollToTable = () => {
+    const el = document.getElementById("historical-telemetry-section");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+
   return (
     <div
-      className={`rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-xs space-y-0 ${className}`}
+      className={`rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-xs space-y-0 w-full shrink-0 ${className}`}
     >
       {/* 1. Header Bar: Clean & Minimal */}
       <div className="p-4 sm:p-5 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-3 text-xs">
@@ -445,34 +452,47 @@ export function ProcessTelemetryDossier({
           </div>
         </div>
 
-        {/* Primary Culprit Notice if Defective */}
-        {rootCauseAnalysis && typeof rootCauseAnalysis.primary_culprit_sensor === "string" && (
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold shadow-2xs">
-            <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626] shrink-0" />
-            <span>
-              Primary Culprit:{" "}
-              <span className="uppercase font-mono">
-                {String(rootCauseAnalysis.primary_culprit_sensor).replace(/_/g, " ")}
+        {/* Action Controls & Culprit Notice */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {rootCauseAnalysis && typeof rootCauseAnalysis.primary_culprit_sensor === "string" && (
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold shadow-2xs">
+              <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626] shrink-0" />
+              <span>
+                Primary Culprit:{" "}
+                <span className="uppercase font-mono">
+                  {String(rootCauseAnalysis.primary_culprit_sensor).replace(/_/g, " ")}
+                </span>
               </span>
-            </span>
-          </div>
-        )}
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={scrollToTable}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#FFFFFF] border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] hover:border-[#1C1917] text-xs font-medium transition-all cursor-pointer shadow-2xs"
+            title="Jump directly to historical MongoDB telemetry table below"
+          >
+            <Database className="w-3.5 h-3.5 text-[#1C1917]" />
+            <span>Telemetry Table ↓</span>
+          </button>
+        </div>
       </div>
 
       {/* 2. Sensor Filter Tabs */}
-      <div className="px-4 py-2 bg-[#FCFBF8] border-b border-[#EAE4D7] flex items-center gap-2 overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setSelectedSensorKey("overview")}
-          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
-            selectedSensorKey === "overview"
-              ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
-              : "bg-[#FFFFFF] border border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-          }`}
-        >
-          <Layers className="w-3.5 h-3.5" />
-          <span>All Sensors</span>
-        </button>
+      <div className="px-4 py-2 bg-[#FCFBF8] border-b border-[#EAE4D7] flex items-center justify-between gap-2 overflow-x-auto">
+        <div className="flex items-center gap-2 overflow-x-auto shrink-0">
+          <button
+            type="button"
+            onClick={() => setSelectedSensorKey("overview")}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
+              selectedSensorKey === "overview"
+                ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
+                : "bg-[#FFFFFF] border border-[#E5DFD3] text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5" />
+            <span>All Sensors</span>
+          </button>
 
         {resolvedSensors.map((sensor) => {
           const Icon = sensor.icon;
@@ -513,6 +533,18 @@ export function ProcessTelemetryDossier({
             </button>
           );
         })}
+        </div>
+
+        {/* Quick Jump to Historical Telemetry Table */}
+        <button
+          type="button"
+          onClick={scrollToTable}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-[#FFFFFF] border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] hover:border-[#1C1917] transition-all shrink-0 cursor-pointer shadow-2xs ml-auto"
+          title="Jump directly to historical MongoDB table below"
+        >
+          <Database className="w-3.5 h-3.5 text-[#1C1917]" />
+          <span>Historical Log ({displayRecords.length}) ↓</span>
+        </button>
       </div>
 
       {/* 3. Main Sensor View */}
@@ -931,7 +963,10 @@ export function ProcessTelemetryDossier({
       </div>
 
       {/* 4. Chronological Telemetry Table (MongoDB Atlas History) */}
-      <div className="p-4 sm:p-5 border-t border-[#EAE4D7] bg-[#FCFBF8] space-y-3">
+      <div
+        id="historical-telemetry-section"
+        className="p-4 sm:p-5 border-t border-[#EAE4D7] bg-[#FCFBF8] space-y-3 scroll-mt-6"
+      >
         {/* Section Header + Legend */}
         <div className="flex flex-wrap items-center justify-between gap-2.5 text-xs">
           <div className="flex items-center gap-2">
@@ -973,7 +1008,7 @@ export function ProcessTelemetryDossier({
 
         {/* Graceful Scroll Container with Sticky Header */}
         <div className="relative rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-2xs">
-          <div className="max-h-72 sm:max-h-80 overflow-y-auto overflow-x-auto scrollbar-thin">
+          <div className="max-h-80 sm:max-h-96 overflow-y-auto overflow-x-auto scrollbar-thin overscroll-contain">
             <table className="w-full text-left text-xs border-collapse min-w-[760px]">
               <thead className="sticky top-0 z-10 bg-[#FAF8F5] border-b border-[#EAE4D7] text-[10px] font-bold text-[#78716A] uppercase tracking-wider backdrop-blur-md shadow-2xs select-none">
                 <tr>

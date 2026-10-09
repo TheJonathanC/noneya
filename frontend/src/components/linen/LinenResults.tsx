@@ -855,7 +855,7 @@ export function LinenResults({
       {/* =========================================================================
           RIGHT ~75% COLUMN: COMPACT IMAGE SELECTOR, BIG IMAGE VIEWER & WORKSPACE
       ========================================================================= */}
-      <main className="relative flex-1 min-w-0 w-full h-full min-h-0 flex flex-col overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 scrollbar-thin">
+      <main className="relative flex-1 min-w-0 w-full h-full min-h-0 overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 pb-24 sm:pb-32 scrollbar-thin">
         {/* =========================================================================
             1. BATCH IMAGE SELECTOR BAR (ABOVE THE TABS BAR)
             Shows status badge, active image count, and horizontal chip selector
@@ -1104,12 +1104,14 @@ export function LinenResults({
 
         {/* TAB 2: PROCESS TELEMETRY & HISTORICAL TRENDS */}
         {activeTab === "telemetry" && (
-          <ProcessTelemetryDossier
-            telemetry={activeItem.telemetry}
-            rawTelemetry={rawTelemetryDict}
-            rootCauseAnalysis={rootCauseAnalysisData}
-            isDefective={isDefective}
-          />
+          <div className="w-full">
+            <ProcessTelemetryDossier
+              telemetry={activeItem.telemetry}
+              rawTelemetry={rawTelemetryDict}
+              rootCauseAnalysis={rootCauseAnalysisData}
+              isDefective={isDefective}
+            />
+          </div>
         )}
 
         {/* TAB 3: RAW DIAGNOSTIC JSON OUTPUT */}
