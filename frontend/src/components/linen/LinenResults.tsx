@@ -327,6 +327,88 @@ export function LinenResults({
   // Out of tolerance sensors
   const outOfToleranceSensors = (activeItem.telemetry || []).filter((t) => t.isOutOfTolerance);
 
+  // Compile all defects across the whole batch
+  const compiledDefects = useMemo(() => {
+    const tally: Record<string, { count: number; imageIndices: number[]; parts: string[] }> = {};
+    allItems.forEach((item, idx) => {
+      if (item.status === "DEFECTIVE") {
+        const defects =
+          item.predictedDefects && item.predictedDefects.length > 0
+            ? item.predictedDefects
+            : [item.defectType || "Defect"];
+        defects.forEach((d) => {
+          const key = d.toLowerCase().trim();
+          if (!tally[key]) {
+            tally[key] = { count: 0, imageIndices: [], parts: [] };
+          }
+          tally[key].count += 1;
+          tally[key].imageIndices.push(idx + 1);
+          tally[key].parts.push(item.partId);
+        });
+      }
+    });
+    return Object.entries(tally).map(([name, data]) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
+      count: data.count,
+      images: data.imageIndices,
+      parts: data.parts,
+    }));
+  }, [allItems]);
+
+  // Unified culprit sensors across the whole batch
+  const batchCulpritSensors = useMemo(() => {
+    const culprits = new Set<string>();
+    if (rootCauseAnalysisData?.primary_culprit_sensor) {
+      culprits.add(String(rootCauseAnalysisData.primary_culprit_sensor).toLowerCase());
+    }
+    batchFixes.forEach((f) => {
+      if (f.sensor) culprits.add(f.sensor.toLowerCase());
+    });
+    outOfToleranceSensors.forEach((s) => {
+      if (s.name) culprits.add(s.name.toLowerCase().replace(/\s+/g, "_"));
+    });
+    return Array.from(culprits);
+  }, [rootCauseAnalysisData, batchFixes, outOfToleranceSensors]);
+
+  // General batch-wide probable cause synthesis based on compiled defects
+  const generalProbableCause = useMemo(() => {
+    if (compiledDefects.length === 0) {
+      return "Batch verified nominal: Process parameters and thermal corridors stable across all parts with zero defect signatures.";
+    }
+
+    const defectNames = compiledDefects.map((d) => d.name.toLowerCase());
+    const hasPorosity = defectNames.some((d) => d.includes("poros"));
+    const hasCrack = defectNames.some((d) => d.includes("crack") || d.includes("tear"));
+    const hasFlash = defectNames.some((d) => d.includes("flash"));
+
+    // If backend provided an overall explanation, check if it's broad
+    const backendExplanation =
+      typeof rawJson?.batch_analysis === "object" && typeof (rawJson.batch_analysis as Record<string, unknown>)?.review === "string"
+        ? ((rawJson.batch_analysis as Record<string, unknown>).review as string)
+        : typeof rootCauseAnalysisData?.diagnostic_explanation === "string"
+        ? rootCauseAnalysisData.diagnostic_explanation
+        : null;
+
+    if (hasPorosity && hasCrack) {
+      return "Coupled thermomechanical drift: Excessive hydraulic ram pack pressure forced dissolved gas porosity into the melt, while subsequent rapid quench cooling gradients triggered thermal contraction stress cracking across the mold core.";
+    }
+    if (hasPorosity && hasFlash) {
+      return "Hydraulic pressure intensification surge: Die pack pressure exceeded clamp tonnage limits during the filling stroke, resulting in mold parting line flash and concurrent turbulent porosity voiding.";
+    }
+    if (hasPorosity) {
+      return `Hydraulic ram pack pressure fluctuation across ${compiledDefects[0].count} part(s). Fluctuating cavity intensification pressure during solidus phase transition prevented complete feeding, entrapping micro-gas porosity.`;
+    }
+    if (hasCrack) {
+      return `Thermal cooling gradient imbalance across ${compiledDefects[0].count} part(s). Non-uniform quench rate through cooling channels generated differential shrinkage stresses exceeding the alloy yield limit.`;
+    }
+    if (backendExplanation) {
+      return backendExplanation;
+    }
+
+    const compiledStr = compiledDefects.map((d) => `${d.name} (${d.count}x)`).join(", ");
+    return `Systemic line parameter drift inducing ${compiledStr}. Hydraulic pack pressure and thermal cooling rates deviated from the nominal Six Sigma process corridor during this batch run.`;
+  }, [compiledDefects, rawJson, rootCauseAnalysisData]);
+
   // Machine Quality Deterioration & Value Drift Calculation
   const maxDriftSigma = useMemo(() => {
     if (batchAnalysis?.stats && typeof batchAnalysis.stats === "object" && "max_drift_sigma" in batchAnalysis.stats) {
@@ -512,29 +594,62 @@ export function LinenResults({
           </section>
         )}
 
-        {/* Card 3: Probable Root Cause & Culprit Sensor */}
-        {(rootCauseAnalysisData || anyDefectsInBatch) && (
-          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-1.5 shadow-2xs text-xs">
+        {/* Card 3: Compiled Batch Probable Root Cause */}
+        {(compiledDefects.length > 0 || rootCauseAnalysisData || anyDefectsInBatch) && (
+          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
             <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
                 <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
-                <span>Probable Root Cause</span>
+                <span>Batch Probable Cause</span>
               </div>
-              {Boolean(rootCauseAnalysisData?.primary_culprit_sensor) && (
-                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] font-bold">
-                  {String(rootCauseAnalysisData?.primary_culprit_sensor).toUpperCase()}
-                </span>
-              )}
+              <span
+                className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-bold ${
+                  compiledDefects.length > 0
+                    ? "bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
+                    : "bg-[#F0FDF4] border border-[#86EFAC] text-[#166534]"
+                }`}
+              >
+                {compiledDefects.length > 0
+                  ? `${compiledDefects.reduce((acc, c) => acc + c.count, 0)} Defect(s) in Batch`
+                  : "Nominal"}
+              </span>
             </div>
+
+            {/* Compiled Defect Chips */}
+            {compiledDefects.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 py-0.5">
+                {compiledDefects.map((d) => (
+                  <span
+                    key={d.name}
+                    className="px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-[10px] font-bold"
+                  >
+                    {d.name} ({d.count}x • Img {d.images.join(", ")})
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {/* General Batch-Wide Probable Cause Explanation */}
             <p className="text-[#57534E] leading-relaxed text-[11px]">
-              {typeof rootCauseAnalysisData?.diagnostic_explanation === "string"
-                ? rootCauseAnalysisData.diagnostic_explanation
-                : typeof rootCauseAnalysisData?.probable_cause === "string"
-                ? rootCauseAnalysisData.probable_cause
-                : anyDefectsInBatch
-                ? "Hydraulic ram pack pressure or melt temperature fluctuation outside nominal Six Sigma corridor."
-                : "All thermal and mechanical telemetry recorded within nominal bounds."}
+              {generalProbableCause}
             </p>
+
+            {/* Compiled Culprit Sensor Tags */}
+            {batchCulpritSensors.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                <span className="text-[10px] text-[#78716A] uppercase font-bold font-sans">
+                  Culprits:
+                </span>
+                {batchCulpritSensors.map((c) => (
+                  <span
+                    key={c}
+                    className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
+                  >
+                    {c.replace(/_/g, " ").toUpperCase()}
+                  </span>
+                ))}
+              </div>
+            )}
           </section>
         )}
 

@@ -298,10 +298,6 @@ export function ProcessTelemetryDossier({
               <h3 className="text-sm font-bold text-[#1C1917]">
                 Process Telemetry & Sensor Baselines
               </h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#F0FDF4] text-[#166534] border border-[#BBF7D0] flex items-center gap-1">
-                <Database className="w-3 h-3 text-[#16A34A]" />
-                <span>MongoDB Sync ({mongoRecords.length > 0 ? `${mongoRecords.length} records` : "Live"})</span>
-              </span>
             </div>
             <p className="text-xs text-[#78716A] mt-0.5">
               Physical parameters measured across casting cycle and verified against factory tolerances.
