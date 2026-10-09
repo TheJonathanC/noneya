@@ -7,16 +7,13 @@ import {
   Thermometer,
   Zap,
   Waves,
-  Clock,
   TrendingUp,
   AlertTriangle,
-  CheckCircle2,
   Wind,
   Droplets,
   Layers,
   ArrowUpRight,
   ArrowDownRight,
-  Info,
   Database,
 } from "lucide-react";
 import { SensorTelemetry } from "@/lib/inspection-adapter";
@@ -133,14 +130,13 @@ export function ProcessTelemetryDossier({
 }: ProcessTelemetryDossierProps) {
   const [selectedSensorKey, setSelectedSensorKey] = useState<string>("overview");
   const [mongoRecords, setMongoRecords] = useState<Array<Record<string, unknown>>>([]);
-  const [isMongoLoading, setIsMongoLoading] = useState(false);
+  const [hoveredPointIdx, setHoveredPointIdx] = useState<number | null>(null);
 
   // Fetch real historical telemetry records from MongoDB Atlas via Next.js proxy
   useEffect(() => {
     let isMounted = true;
     async function loadMongoHistory() {
       try {
-        setIsMongoLoading(true);
         const res = await fetch("/api/telemetry/recent?limit=25");
         if (res.ok) {
           const json = await res.json();
@@ -150,8 +146,6 @@ export function ProcessTelemetryDossier({
         }
       } catch (err) {
         console.debug("Mongo telemetry fetch note:", err);
-      } finally {
-        if (isMounted) setIsMongoLoading(false);
       }
     }
     loadMongoHistory();
@@ -217,11 +211,9 @@ export function ProcessTelemetryDossier({
 
   // Generate historical time-series for a given sensor (pulling from MongoDB if available)
   const getHistoricalSeries = (sensor: (typeof resolvedSensors)[0]) => {
-    // Check if we have real MongoDB historical records with sensor readings
     const realMongoPoints: Array<{ cycle: number; value: number; timestamp: string }> = [];
     if (mongoRecords.length > 0) {
-      // Reverse to chronological order (oldest to newest)
-      const chronoRecords = [...mongoRecords].reverse().slice(-16);
+      const chronoRecords = [...mongoRecords].reverse().slice(-14);
       chronoRecords.forEach((rec, idx) => {
         const readings = (rec.sensor_readings as Record<string, number>) || {};
         if (typeof readings[sensor.key] === "number") {
@@ -238,18 +230,17 @@ export function ProcessTelemetryDossier({
     }
 
     if (realMongoPoints.length >= 3) {
-      // Append current live inspection value as final point
       realMongoPoints.push({
         cycle: 0,
         value: sensor.value,
-        timestamp: "Live (t₀)",
+        timestamp: "Live Inspection (t₀)",
       });
       return realMongoPoints;
     }
 
-    // High-fidelity fallback series if DB history is still populating
+    // High-fidelity fallback series
     const points: Array<{ cycle: number; value: number; timestamp: string }> = [];
-    const count = 16;
+    const count = 14;
     const finalValue = sensor.value;
     const target = sensor.target;
     const isDrifting = sensor.isOutOfTolerance || sensor.isCulprit;
@@ -259,14 +250,14 @@ export function ProcessTelemetryDossier({
       let val = target;
 
       if (isDrifting) {
-        if (cycleIdx <= 6) {
-          const progress = (6 - cycleIdx) / 6;
-          val = target + (finalValue - target) * progress + (Math.sin(i * 1.5) * sensor.std * 0.15);
+        if (cycleIdx <= 5) {
+          const progress = (5 - cycleIdx) / 5;
+          val = target + (finalValue - target) * progress + Math.sin(i * 1.5) * sensor.std * 0.12;
         } else {
-          val = target + (Math.sin(i * 0.9) * sensor.std * 0.25);
+          val = target + Math.sin(i * 0.9) * sensor.std * 0.2;
         }
       } else {
-        val = target + (Math.sin(i * 1.1) * sensor.std * 0.22);
+        val = target + Math.sin(i * 1.1) * sensor.std * 0.18;
       }
 
       if (cycleIdx === 0) {
@@ -276,7 +267,7 @@ export function ProcessTelemetryDossier({
       points.push({
         cycle: -cycleIdx,
         value: Math.round(val * 10) / 10,
-        timestamp: cycleIdx === 0 ? "Live (t₀)" : `-${cycleIdx * 1.5}m`,
+        timestamp: cycleIdx === 0 ? "Live (t₀)" : `-${cycleIdx * 2}m`,
       });
     }
 
@@ -290,53 +281,49 @@ export function ProcessTelemetryDossier({
     <div
       className={`rounded-2xl border border-[#E5DFD3] bg-[#FFFFFF] overflow-hidden shadow-xs space-y-0 ${className}`}
     >
-      {/* 1. Header Bar: Status & Culprit Notice */}
+      {/* 1. Header Bar: Clean & Minimal */}
       <div className="p-4 sm:p-5 bg-[#FAF8F5] border-b border-[#EAE4D7] flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-3">
           <div
-            className={`p-2.5 rounded-xl border ${
+            className={`p-2 rounded-xl border ${
               isDefective
                 ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
                 : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
             }`}
           >
-            <Activity className="w-5 h-5" />
+            <Activity className="w-4 h-4" />
           </div>
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-bold text-[#1C1917]">
-                SCADA Process Telemetry & Diagnostic Drift
+                Process Telemetry & Sensor Baselines
               </h3>
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#EFE9DD] text-[#57534E] border border-[#DDD5C7]">
-                CELL-04 • 6 CHANNELS
-              </span>
               <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#F0FDF4] text-[#166534] border border-[#BBF7D0] flex items-center gap-1">
                 <Database className="w-3 h-3 text-[#16A34A]" />
-                <span>MongoDB Sync ({mongoRecords.length > 0 ? `${mongoRecords.length} records` : "Active"})</span>
+                <span>MongoDB Sync ({mongoRecords.length > 0 ? `${mongoRecords.length} records` : "Live"})</span>
               </span>
             </div>
             <p className="text-xs text-[#78716A] mt-0.5">
-              Live sensor readings correlated with historical MongoDB Atlas telemetry baselines.
+              Physical parameters measured across casting cycle and verified against factory tolerances.
             </p>
           </div>
         </div>
 
-        {/* Primary Culprit Callout Badge */}
+        {/* Primary Culprit Notice if Defective */}
         {rootCauseAnalysis && typeof rootCauseAnalysis.primary_culprit_sensor === "string" && (
           <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-xs font-semibold shadow-2xs">
-            <AlertTriangle className="w-4 h-4 text-[#DC2626] shrink-0" />
+            <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626] shrink-0" />
             <span>
               Primary Culprit:{" "}
               <span className="uppercase font-mono">
                 {String(rootCauseAnalysis.primary_culprit_sensor).replace(/_/g, " ")}
-              </span>{" "}
-              (+{typeof rootCauseAnalysis.z_score_deviation === "number" ? rootCauseAnalysis.z_score_deviation : 4.2}σ)
+              </span>
             </span>
           </div>
         )}
       </div>
 
-      {/* 2. Parameter Tabs Strip */}
+      {/* 2. Sensor Filter Tabs */}
       <div className="px-4 py-2 bg-[#FCFBF8] border-b border-[#EAE4D7] flex items-center gap-2 overflow-x-auto">
         <button
           type="button"
@@ -348,7 +335,7 @@ export function ProcessTelemetryDossier({
           }`}
         >
           <Layers className="w-3.5 h-3.5" />
-          <span>All Sensors Overview</span>
+          <span>All Sensors</span>
         </button>
 
         {resolvedSensors.map((sensor) => {
@@ -360,7 +347,10 @@ export function ProcessTelemetryDossier({
             <button
               key={sensor.key}
               type="button"
-              onClick={() => setSelectedSensorKey(sensor.key)}
+              onClick={() => {
+                setSelectedSensorKey(sensor.key);
+                setHoveredPointIdx(null);
+              }}
               className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-medium transition-all shrink-0 cursor-pointer ${
                 isSelected
                   ? "bg-[#1C1917] text-[#FAF8F5] shadow-xs font-semibold"
@@ -389,20 +379,19 @@ export function ProcessTelemetryDossier({
         })}
       </div>
 
-      {/* 3. Tab Content View */}
+      {/* 3. Main Sensor View */}
       <div className="p-5 sm:p-6 bg-[#FFFFFF]">
         {selectedSensorKey === "overview" ? (
           /* =========================================================================
-             OVERVIEW VIEW: Grid comparing all 6 physical SCADA/PLC sensors
+             OVERVIEW VIEW: Clean, clutter-free grid of all 6 physical sensors
           ========================================================================= */
-          <div className="space-y-5">
+          <div className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {resolvedSensors.map((sensor) => {
                 const Icon = sensor.icon;
                 const isAnomalous = sensor.isOutOfTolerance || sensor.isCulprit;
                 const deltaSign = sensor.delta >= 0 ? "+" : "";
 
-                // Calculate progress within min-max bounds
                 const pct = Math.min(
                   Math.max(
                     ((sensor.value - sensor.min) / (sensor.max - sensor.min)) * 100,
@@ -414,7 +403,10 @@ export function ProcessTelemetryDossier({
                 return (
                   <div
                     key={sensor.key}
-                    onClick={() => setSelectedSensorKey(sensor.key)}
+                    onClick={() => {
+                      setSelectedSensorKey(sensor.key);
+                      setHoveredPointIdx(null);
+                    }}
                     className={`p-4 rounded-xl border text-xs space-y-3 cursor-pointer transition-all hover:shadow-xs ${
                       sensor.isCulprit
                         ? "bg-[#FFF5F5] border-[#FCA5A5] ring-1 ring-[#DC2626]/20"
@@ -423,7 +415,6 @@ export function ProcessTelemetryDossier({
                         : "bg-[#FAF8F5] border-[#EAE4D7] hover:border-[#DDD5C7]"
                     }`}
                   >
-                    {/* Card Top: Icon & Value */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <div
@@ -440,7 +431,7 @@ export function ProcessTelemetryDossier({
                             {sensor.name}
                           </span>
                           <span className="text-[10px] text-[#78716A]">
-                            Nominal: {sensor.target} {sensor.unit}
+                            Target: {sensor.target} {sensor.unit}
                           </span>
                         </div>
                       </div>
@@ -460,16 +451,15 @@ export function ProcessTelemetryDossier({
                             <ArrowDownRight className="w-3 h-3 inline" />
                           )}
                           {deltaSign}
-                          {sensor.delta.toFixed(1)} ({sensor.zScore}σ)
+                          {sensor.delta.toFixed(1)}
                         </span>
                       </div>
                     </div>
 
-                    {/* Tolerance Progress Dial Bar */}
+                    {/* Progress Bar within Target Corridor */}
                     <div className="space-y-1">
                       <div className="flex justify-between text-[10px] font-mono text-[#78716A]">
                         <span>Min: {sensor.min}</span>
-                        <span>Target: {sensor.target}</span>
                         <span>Max: {sensor.max}</span>
                       </div>
                       <div className="w-full bg-[#E5DFD3] h-2 rounded-full overflow-hidden relative">
@@ -486,7 +476,6 @@ export function ProcessTelemetryDossier({
                       </div>
                     </div>
 
-                    {/* Status Footer */}
                     <div className="pt-2 border-t border-[#EAE4D7] flex items-center justify-between text-[11px]">
                       <span
                         className={`font-semibold ${
@@ -498,90 +487,80 @@ export function ProcessTelemetryDossier({
                         }`}
                       >
                         {sensor.isCulprit
-                          ? "Root Cause Culprit"
+                          ? "Root Cause Drift"
                           : isAnomalous
                           ? "Out of Tolerance"
-                          : "Nominal Pass"}
+                          : "Nominal"}
                       </span>
                       <span className="text-[10px] text-[#78716A] underline">
-                        View trend & chart →
+                        View trend →
                       </span>
                     </div>
                   </div>
                 );
               })}
             </div>
-
-            {/* Diagnostic Synthesis Footer */}
-            {rootCauseAnalysis && typeof rootCauseAnalysis.diagnostic_explanation === "string" && (
-              <div className="p-4 rounded-xl border border-[#E5DFD3] bg-[#FCFBF8] flex items-start gap-3 text-xs">
-                <Info className="w-4 h-4 text-[#78716A] shrink-0 mt-0.5" />
-                <div className="space-y-0.5">
-                  <div className="font-semibold text-[#1C1917]">
-                    Model 3 Diagnostic Synthesis
-                  </div>
-                  <p className="text-[#57534E] leading-relaxed">
-                    {String(rootCauseAnalysis.diagnostic_explanation)}
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
         ) : (
           /* =========================================================================
-             INDIVIDUAL SENSOR VIEW: Deep dive with historical telemetry sparkline
+             INDIVIDUAL SENSOR VIEW: Interactive Trend Graph + Only Relevant Attribution
           ========================================================================= */
           activeSensor && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {/* Top Stats Metric Strip */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-                <div className="p-4 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+                <div className="p-3.5 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
                   <div className="text-[11px] text-[#78716A]">Recorded Reading</div>
                   <div className="font-mono text-base font-bold text-[#1C1917] mt-1 tabular-nums">
                     {activeSensor.value} {activeSensor.unit}
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+                <div className="p-3.5 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
                   <div className="text-[11px] text-[#78716A]">Nominal Target</div>
                   <div className="font-mono text-base font-semibold text-[#1C1917] mt-1 tabular-nums">
                     {activeSensor.target} {activeSensor.unit}
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
-                  <div className="text-[11px] text-[#78716A]">Safe Band Corridor</div>
+                <div className="p-3.5 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+                  <div className="text-[11px] text-[#78716A]">Tolerance Corridor</div>
                   <div className="font-mono text-base font-semibold text-[#1C1917] mt-1 tabular-nums">
-                    {activeSensor.min} – {activeSensor.max}
+                    {activeSensor.min} – {activeSensor.max} {activeSensor.unit}
                   </div>
                 </div>
 
-                <div className="p-4 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
-                  <div className="text-[11px] text-[#78716A]">Z-Score Drift (σ)</div>
+                <div className="p-3.5 rounded-xl border border-[#EAE4D7] bg-[#FAF8F5]">
+                  <div className="text-[11px] text-[#78716A]">Status</div>
                   <div
-                    className={`font-mono text-base font-bold mt-1 tabular-nums ${
-                      activeSensor.zScore >= 3
+                    className={`text-sm font-bold mt-1 ${
+                      activeSensor.isCulprit || activeSensor.isOutOfTolerance
                         ? "text-[#991B1B]"
-                        : activeSensor.zScore >= 1.5
-                        ? "text-[#D97706]"
                         : "text-[#166534]"
                     }`}
                   >
-                    {activeSensor.delta >= 0 ? "+" : ""}
-                    {activeSensor.zScore}σ
+                    {activeSensor.isCulprit
+                      ? "Primary Culprit"
+                      : activeSensor.isOutOfTolerance
+                      ? "Out of Tolerance"
+                      : "Nominal Pass"}
                   </div>
                 </div>
               </div>
 
-              {/* Historical Telemetry Time-Series Chart */}
-              <div className="p-5 rounded-xl border border-[#E5DFD3] bg-[#FCFBF8] space-y-4">
+              {/* Historical Telemetry Time-Series Chart (Interactive & Responsive) */}
+              <div className="p-4 sm:p-5 rounded-xl border border-[#E5DFD3] bg-[#FCFBF8] space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
                   <div className="flex items-center gap-2">
                     <TrendingUp className="w-4 h-4 text-[#1C1917]" />
                     <span className="font-semibold text-[#1C1917]">
-                      Historical Telemetry Trend (Last 16 Cycles • t-24m to t₀)
+                      {activeSensor.name} Trend
+                    </span>
+                    <span className="text-[10px] text-[#78716A] font-mono">
+                      (Chronological MongoDB History)
                     </span>
                   </div>
+
                   <div className="flex items-center gap-3 font-mono text-[10px] text-[#78716A]">
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-0.5 bg-[#16A34A] inline-block" />
@@ -589,25 +568,30 @@ export function ProcessTelemetryDossier({
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-2.5 h-0.5 bg-[#1C1917] inline-block" />
-                      Recorded Sensor Path
+                      Recorded Path
                     </span>
                   </div>
                 </div>
 
-                {/* SVG Sparkline Graph */}
-                <div className="w-full h-48 sm:h-56 relative select-none">
+                {/* SVG Sparkline Graph with Hover Tooltip */}
+                <div className="w-full h-56 sm:h-64 relative select-none">
                   {(() => {
-                    const minVal = Math.min(activeSensor.min * 0.95, ...activeSeries.map((p) => p.value));
-                    const maxVal = Math.max(activeSensor.max * 1.05, ...activeSeries.map((p) => p.value));
+                    const seriesValues = activeSeries.map((p) => p.value);
+                    const allVals = [activeSensor.min, activeSensor.max, activeSensor.target, ...seriesValues];
+                    const rawMin = Math.min(...allVals);
+                    const rawMax = Math.max(...allVals);
+                    const padMargin = (rawMax - rawMin) * 0.15 || 5;
+                    const minVal = rawMin - padMargin;
+                    const maxVal = rawMax + padMargin;
                     const span = maxVal - minVal || 1;
 
-                    const width = 640;
-                    const height = 180;
-                    const padX = 40;
-                    const padY = 20;
+                    const width = 800;
+                    const height = 220;
+                    const padX = 50;
+                    const padY = 25;
 
                     const getX = (idx: number) =>
-                      padX + (idx / (activeSeries.length - 1)) * (width - padX * 2);
+                      padX + (idx / Math.max(activeSeries.length - 1, 1)) * (width - padX * 2);
                     const getY = (val: number) =>
                       height - padY - ((val - minVal) / span) * (height - padY * 2);
 
@@ -622,15 +606,15 @@ export function ProcessTelemetryDossier({
                     return (
                       <svg
                         viewBox={`0 0 ${width} ${height}`}
-                        className="w-full h-full overflow-visible"
-                        preserveAspectRatio="none"
+                        className="w-full h-full"
+                        preserveAspectRatio="xMidYMid meet"
                       >
                         <defs>
-                          <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                          <linearGradient id="sensorTrendGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop
                               offset="0%"
                               stopColor={activeSensor.isCulprit ? "#EF4444" : "#1C1917"}
-                              stopOpacity="0.25"
+                              stopOpacity="0.20"
                             />
                             <stop
                               offset="100%"
@@ -657,7 +641,7 @@ export function ProcessTelemetryDossier({
                           stroke="#16A34A"
                           strokeWidth="1"
                           strokeDasharray="4,4"
-                          opacity="0.5"
+                          opacity="0.6"
                         />
                         <line
                           x1={padX}
@@ -667,10 +651,10 @@ export function ProcessTelemetryDossier({
                           stroke="#16A34A"
                           strokeWidth="1"
                           strokeDasharray="4,4"
-                          opacity="0.5"
+                          opacity="0.6"
                         />
 
-                        {/* Target Center Baseline Line */}
+                        {/* Nominal Center Baseline */}
                         <line
                           x1={padX}
                           y1={targetY}
@@ -688,7 +672,7 @@ export function ProcessTelemetryDossier({
                             points={`${getX(0)},${height - padY} ${polyPoints} ${getX(
                               activeSeries.length - 1
                             )},${height - padY}`}
-                            fill="url(#trendGrad)"
+                            fill="url(#sensorTrendGrad)"
                           />
                         )}
 
@@ -697,22 +681,29 @@ export function ProcessTelemetryDossier({
                           points={polyPoints}
                           fill="none"
                           stroke={activeSensor.isCulprit ? "#DC2626" : "#1C1917"}
-                          strokeWidth="2.4"
+                          strokeWidth="2.2"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         />
 
-                        {/* Data Points */}
+                        {/* Data Points with Hover Interaction */}
                         {activeSeries.map((pt, idx) => {
                           const isLast = idx === activeSeries.length - 1;
                           const cx = getX(idx);
                           const cy = getY(pt.value);
+                          const isHovered = hoveredPointIdx === idx;
+
                           return (
-                            <g key={idx}>
+                            <g
+                              key={idx}
+                              className="cursor-pointer"
+                              onMouseEnter={() => setHoveredPointIdx(idx)}
+                              onMouseLeave={() => setHoveredPointIdx(null)}
+                            >
                               <circle
                                 cx={cx}
                                 cy={cy}
-                                r={isLast ? 4.5 : 2.5}
+                                r={isHovered ? 6 : isLast ? 4.5 : 3}
                                 fill={
                                   isLast
                                     ? activeSensor.isCulprit
@@ -727,8 +718,35 @@ export function ProcessTelemetryDossier({
                                     ? "#DC2626"
                                     : "#1C1917"
                                 }
-                                strokeWidth={isLast ? 2 : 1.5}
+                                strokeWidth={isHovered ? 2.5 : isLast ? 2 : 1.5}
                               />
+
+                              {/* Hover Tooltip Box in SVG */}
+                              {isHovered && (
+                                <g transform={`translate(${cx}, ${Math.max(cy - 36, 20)})`}>
+                                  <rect
+                                    x="-45"
+                                    y="-12"
+                                    width="90"
+                                    height="24"
+                                    rx="6"
+                                    fill="#1C1917"
+                                    stroke="#E5DFD3"
+                                    strokeWidth="1"
+                                  />
+                                  <text
+                                    x="0"
+                                    y="3"
+                                    fill="#FAF8F5"
+                                    fontSize="10"
+                                    fontFamily="monospace"
+                                    fontWeight="bold"
+                                    textAnchor="middle"
+                                  >
+                                    {pt.value} {activeSensor.unit}
+                                  </text>
+                                </g>
+                              )}
                             </g>
                           );
                         })}
@@ -739,27 +757,28 @@ export function ProcessTelemetryDossier({
 
                 {/* X-Axis Cycle Labels */}
                 <div className="flex justify-between text-[11px] font-mono text-[#78716A] px-2 pt-1 border-t border-[#EAE4D7]">
-                  <span>Cycle -15 (t-24m)</span>
-                  <span>Cycle -10 (t-15m)</span>
-                  <span>Cycle -5 (t-7m)</span>
+                  <span>Past Records</span>
+                  <span>MongoDB Atlas Timeline</span>
                   <span className="font-semibold text-[#1C1917]">Live Inspection (t₀)</span>
                 </div>
               </div>
 
-              {/* Physical Process Engineering Rationale */}
-              <div className="p-4 rounded-xl border border-[#E5DFD3] bg-[#FAF8F5] space-y-2 text-xs">
-                <div className="font-semibold text-[#1C1917] flex items-center gap-1.5">
-                  <CheckCircle2 className="w-4 h-4 text-[#16A34A]" />
-                  <span>Physical Process Context & Engineering Attribution</span>
+              {/* Physical Process Context & Engineering Attribution: ONLY shown for defective / anomalous sensors */}
+              {(activeSensor.isCulprit || activeSensor.isOutOfTolerance) && (
+                <div className="p-4 rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] space-y-2 text-xs">
+                  <div className="font-semibold text-[#991B1B] flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
+                    <span>Physical Process Context & Engineering Attribution</span>
+                  </div>
+                  <p className="text-[#57534E] leading-relaxed">
+                    {activeSensor.description}
+                  </p>
+                  <div className="pt-2 border-t border-[#FCA5A5]/40 text-[#7F1D1D]">
+                    <span className="font-semibold">Root Cause Profile: </span>
+                    {activeSensor.causeMapping}
+                  </div>
                 </div>
-                <p className="text-[#57534E] leading-relaxed">
-                  {activeSensor.description}
-                </p>
-                <div className="pt-2 border-t border-[#EAE4D7] text-[#78350F]">
-                  <span className="font-semibold text-[#1C1917]">Root Cause Profile: </span>
-                  {activeSensor.causeMapping}
-                </div>
-              </div>
+              )}
             </div>
           )
         )}

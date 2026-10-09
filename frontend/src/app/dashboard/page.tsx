@@ -141,7 +141,7 @@ export default function QualityInspectionDashboard() {
       setStagedItems((prev) =>
         prev.map((item) => ({ ...item, status: "processing", verdict: undefined }))
       );
-      setCurrentProcessingIndex(0);
+      setCurrentProcessingIndex(-1);
 
       try {
         const filesToProcess = stagedItems.map((item) => item.file);
