@@ -477,7 +477,7 @@ export function PhoneScanner() {
               type="button"
               onClick={() => {
                 setActiveTab("usb");
-                if (!isUsbVideoActive) {
+                if (!isUsbVideoActive && usbSourceType === "webrtc") {
                   startUsbCamera(selectedDeviceId);
                 }
               }}

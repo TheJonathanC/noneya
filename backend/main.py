@@ -289,10 +289,26 @@ async def lifespan(app: FastAPI):
     vision_executor.shutdown(wait=False)
 
 
+tags_metadata = [
+    {
+        "name": "Main Production Routes",
+        "description": "Primary end-to-end industrial quality inspection endpoints: Multi-part visual defect screening (Model 1 + Model 2), SCADA root-cause diagnostics (Model 3 XGBoost), Gemini supervisor reports, batch gatekeeper evaluation, and live hardware feeds (DroidCam USB / ESP32-CAM).",
+    },
+    {
+        "name": "System & Database",
+        "description": "API status, operational health checks, live MongoDB Atlas reconnection, and historical telemetry queries.",
+    },
+    {
+        "name": "Test & Diagnostic Routes",
+        "description": "Standalone model testing and simulation endpoints: Isolated Model 1 (EfficientNet-B0), Model 2 (6-class ResNet-18), Model 3 + Gemini batch simulations, and real-time SSE telemetry streaming.",
+    },
+]
+
 app = FastAPI(
     title="Qastra - Component Quality Inspection API",
-    description="Automated Component Quality Inspection and Diagnostic Pipeline",
+    description="Automated Component Quality Inspection, Root-Cause Diagnostics, and Batch Gatekeeping Pipeline",
     version="1.0.0",
+    openapi_tags=tags_metadata,
     lifespan=lifespan,
     debug=True,
 )
@@ -316,6 +332,7 @@ def custom_openapi():
         version=app.version,
         description=app.description,
         routes=app.routes,
+        tags=tags_metadata,
     )
 
     # Swagger UI requires format: "binary" instead of contentMediaType: "application/octet-stream"
@@ -344,6 +361,7 @@ def custom_openapi():
             }
             comp.pop("required", None)
 
+    openapi_schema["tags"] = tags_metadata
     app.openapi_schema = openapi_schema
     return app.openapi_schema
 
@@ -552,7 +570,7 @@ def analyze_process_failure() -> Dict[str, Any]:
 # API Endpoints
 # ---------------------------------------------------------
 
-@app.get("/")
+@app.get("/", tags=["System & Database"], summary="API Root Status")
 def health_check():
     """Health check endpoint for reverse proxies and ingress monitors."""
     return {
@@ -563,7 +581,7 @@ def health_check():
     }
 
 
-@app.get("/health")
+@app.get("/health", tags=["System & Database"], summary="System & Model Health Status")
 def status_check():
     """Detailed backend component health status."""
     return {
@@ -578,7 +596,7 @@ def status_check():
     }
 
 
-@app.get("/api/db/health")
+@app.get("/api/db/health", tags=["System & Database"], summary="MongoDB Connectivity Health")
 async def db_health():
     """Returns MongoDB connectivity status and document counts."""
     count = 0
@@ -597,7 +615,7 @@ async def db_health():
     }
 
 
-@app.post("/api/db/reconnect")
+@app.post("/api/db/reconnect", tags=["System & Database"], summary="Reconnect MongoDB Atlas")
 async def db_reconnect(mongo_uri: Optional[str] = None):
     """Attempts to reconnect to MongoDB Atlas live without container restart."""
     success = await database.init_db(mongo_uri=mongo_uri)
@@ -607,7 +625,7 @@ async def db_reconnect(mongo_uri: Optional[str] = None):
     }
 
 
-@app.get("/api/telemetry/recent")
+@app.get("/api/telemetry/recent", tags=["System & Database"], summary="Fetch Recent Inspection Records")
 async def get_recent_telemetry(limit: int = 20):
     """Fetches recently persisted telemetry inspection records from MongoDB."""
     if not database.is_db_connected:
@@ -628,7 +646,7 @@ async def get_recent_telemetry(limit: int = 20):
         return {"connected": True, "error": str(exc), "records": []}
 
 
-@app.post("/inspect-pilot-batch")
+@app.post("/inspect-pilot-batch", tags=["Main Production Routes"], summary="5-Part Pilot Batch Gatekeeper Inspection")
 async def inspect_pilot_batch(files: List[UploadFile] = File(...)):
     """
     Main inspection endpoint for the 5-part pilot batch of casting impellers.
@@ -1099,7 +1117,7 @@ async def run_pilot_inspection_pipeline(
     }
 
 
-@app.post("/api/inspect")
+@app.post("/api/inspect", tags=["Main Production Routes"], summary="Main Multi-Stage Batch Inspection Pipeline")
 async def inspect_batch(
     request: Request,
     file: Optional[UploadFile] = File(None, description="Select component image file (cast_def_0_65.jpeg)"),
@@ -1294,7 +1312,7 @@ def _capture_esp32_frame(stream_url: str = ESP32_STREAM_URL) -> tuple:
     )
 
 
-@app.post("/api/inspect-gstreamer")
+@app.post("/api/inspect-gstreamer", tags=["Main Production Routes"], summary="ESP32-CAM GStreamer Stream Snapshot Inspection")
 async def inspect_gstreamer(request: Request):
     """
     Pulls a frame directly from ESP32-CAM stream via GStreamer (or standard HTTP fallback)
@@ -1610,7 +1628,7 @@ async def mjpeg_stream_generator():
         camera_manager.active_subscribers = max(0, camera_manager.active_subscribers - 1)
 
 
-@app.get("/api/camera-stream")
+@app.get("/api/camera-stream", tags=["Main Production Routes"], summary="Live MJPEG Camera Video Stream")
 async def get_camera_stream(device_index: int = 0):
     """
     MJPEG live video stream from USB / DroidCam camera.
@@ -1632,7 +1650,7 @@ async def get_camera_stream(device_index: int = 0):
     )
 
 
-@app.get("/api/camera-status")
+@app.get("/api/camera-status", tags=["Main Production Routes"], summary="Live Camera Status & Resolution")
 async def get_camera_status():
     """Returns the current connection status and resolution of the USB camera."""
     return {
@@ -1648,7 +1666,7 @@ async def get_camera_status():
     }
 
 
-@app.get("/api/camera-snapshot")
+@app.get("/api/camera-snapshot", tags=["Main Production Routes"], summary="Instant Single-Frame JPEG Snapshot")
 async def get_camera_snapshot():
     """Grabs a single instantaneous JPEG frame."""
     frame_bytes = camera_manager.get_latest_frame_bytes()
@@ -1657,7 +1675,7 @@ async def get_camera_snapshot():
     raise HTTPException(status_code=503, detail="USB / DroidCam camera frame unavailable")
 
 
-@app.post("/api/inspect-phone")
+@app.post("/api/inspect-phone", tags=["Main Production Routes"], summary="Tethered Phone / DirectShow Video Frame Inspection")
 async def inspect_phone(
     request: Request,
     file: Optional[UploadFile] = File(None, description="Captured phone camera image file"),
@@ -1943,10 +1961,10 @@ def _execute_m3_gemini_batch(parts_str: str, batch_id: str) -> Dict[str, Any]:
     }
 
 
-@app.get("/api/model3-gemini/batch")
-@app.post("/api/model3-gemini/batch")
-@app.get("/api/test-model3-gemini")
-@app.post("/api/test-model3-gemini")
+@app.get("/api/model3-gemini/batch", tags=["Test & Diagnostic Routes"], summary="Model 3 + Gemini Batch Telemetry Diagnostic (GET)")
+@app.post("/api/model3-gemini/batch", tags=["Test & Diagnostic Routes"], summary="Model 3 + Gemini Batch Telemetry Diagnostic (POST)")
+@app.get("/api/test-model3-gemini", tags=["Test & Diagnostic Routes"], summary="Model 3 + Gemini Telemetry Diagnostic (GET Alias)")
+@app.post("/api/test-model3-gemini", tags=["Test & Diagnostic Routes"], summary="Model 3 + Gemini Telemetry Diagnostic (POST Alias)")
 async def api_model3_gemini_batch(
     parts: str = Query("ok,porosity,ok,crack,ok", description="Comma-separated defect types (ok, porosity, crack, deformation, scratch, corrosion)"),
     batch_id: str = Query("PILOT-M3-GEMINI", description="Batch identifier"),
@@ -1959,7 +1977,7 @@ async def api_model3_gemini_batch(
     return await loop.run_in_executor(None, _execute_m3_gemini_batch, parts, batch_id)
 
 
-@app.get("/api/model3-gemini/batch/stream")
+@app.get("/api/model3-gemini/batch/stream", tags=["Test & Diagnostic Routes"], summary="SSE Stream: Step-by-Step Model 3 + Gemini Batch")
 async def api_model3_gemini_stream(
     parts: str = Query("ok,porosity,ok,crack,ok", description="Comma-separated defect types"),
     batch_id: str = Query("STREAM-M3-GEMINI", description="Batch identifier"),
@@ -1999,8 +2017,8 @@ async def api_model3_gemini_stream(
     return StreamingResponse(sse_event_generator(), media_type="text/event-stream")
 
 
-@app.get("/model3-batch-demo", response_class=HTMLResponse)
-@app.get("/demo/model3-batch", response_class=HTMLResponse)
+@app.get("/model3-batch-demo", response_class=HTMLResponse, tags=["Test & Diagnostic Routes"], summary="Interactive Model 3 + Gemini Visual Demo UI")
+@app.get("/demo/model3-batch", response_class=HTMLResponse, tags=["Test & Diagnostic Routes"], summary="Interactive Model 3 + Gemini Visual Demo UI (Alias)")
 async def model3_batch_demo_page():
     """
     Interactive web route to visually observe Model 3 (XGBoost) + Gemini (LLM)
@@ -2428,8 +2446,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Standalone Model Testing Routes (Zero LLM / Gemini Dependency)
 # ---------------------------------------------------------
 
-@app.post("/test/classify")
-@app.post("/test-classification")
+@app.post("/test/classify", tags=["Test & Diagnostic Routes"], summary="Test Model 1: Binary Defect Classifier")
+@app.post("/test-classification", tags=["Test & Diagnostic Routes"], summary="Test Model 1: Binary Defect Classifier (Alias)")
 async def test_classification(file: UploadFile = File(...)):
     """
     Standalone test route for the PyTorch classification model (Vision Model A: EfficientNet-B0).
@@ -2522,8 +2540,8 @@ async def test_classification(file: UploadFile = File(...)):
     return res_payload
 
 
-@app.post("/test/classify-batch")
-@app.post("/test-classification-batch")
+@app.post("/test/classify-batch", tags=["Test & Diagnostic Routes"], summary="Test Model 1: Batch Image Classification")
+@app.post("/test-classification-batch", tags=["Test & Diagnostic Routes"], summary="Test Model 1: Batch Image Classification (Alias)")
 async def test_classification_batch(files: List[UploadFile] = File(...)):
     """
     Batch standalone test route for evaluating multiple images concurrently
@@ -2592,7 +2610,7 @@ async def test_classification_batch(files: List[UploadFile] = File(...)):
 # Model 2: Multi-Label ResNet-18 Defect Testing Route
 # ---------------------------------------------------------
 
-@app.post("/test-model2")
+@app.post("/test-model2", tags=["Test & Diagnostic Routes"], summary="Test Model 2: Multi-Label ResNet-18 Defect Classifier")
 async def test_model2(file: UploadFile = File(...)):
     """
     Multi-label defect classification test route (Vision Model: ResNet-18).
@@ -3150,7 +3168,7 @@ def generate_segmentation_instances(
 
 
 
-@app.post("/test-integrated-pipeline")
+@app.post("/test-integrated-pipeline", tags=["Test & Diagnostic Routes"], summary="Test Integrated Model 1 + Model 2 Grad-CAM Pipeline")
 async def test_integrated_pipeline(file: UploadFile = File(...)):
     """
     Sequential Pipeline:
