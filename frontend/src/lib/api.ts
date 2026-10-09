@@ -130,7 +130,22 @@ export async function inspectSinglePhoto(
     }
 
     const objectUrl = URL.createObjectURL(file);
-    const item = normalizeInspectionResponse(rawJson, file.name, objectUrl);
+    let singlePayload = rawJson;
+    if (Array.isArray(rawJson.results) && rawJson.results.length > 0) {
+      const firstResult = rawJson.results[0] as Record<string, unknown>;
+      singlePayload = {
+        ...firstResult,
+        batch_id: rawJson.batch_id,
+        gate_decision: rawJson.gate_decision,
+        gate_status: rawJson.gate_status,
+        batch_analysis: rawJson.batch_analysis,
+        supervisor_summary: rawJson.supervisor_summary,
+        root_cause_analysis: firstResult.root_cause_analysis || rawJson.root_cause,
+        gemini_incident_report: firstResult.gemini_report || rawJson.gemini_incident_report,
+      };
+    }
+
+    const item = normalizeInspectionResponse(singlePayload, file.name, objectUrl);
     item.fileName = file.name;
 
     const source = rawJson.backend_target

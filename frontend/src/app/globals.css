@@ -98,3 +98,37 @@ body {
 .animate-data-stream {
   animation: data-stream 1.8s ease-in-out infinite;
 }
+
+@keyframes conveyor-pulse {
+  0% {
+    background-position: 0 0;
+  }
+  100% {
+    background-position: 40px 0;
+  }
+}
+
+.animate-conveyor-track {
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(229, 223, 211, 0.4) 0px,
+    rgba(229, 223, 211, 0.4) 10px,
+    transparent 10px,
+    transparent 20px
+  );
+  animation: conveyor-pulse 1.2s linear infinite;
+}
+
+@keyframes item-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(0, 229, 255, 0.8);
+  }
+}
+
+.animate-item-active {
+  animation: item-glow 1.5s ease-in-out infinite;
+}
+

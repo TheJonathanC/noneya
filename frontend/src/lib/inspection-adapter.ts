@@ -611,10 +611,13 @@ export function normalizeInspectionResponse(
   let data = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
 
   // If this is a batch response from /api/inspect containing a 'results' array, extract the first or matching part
-  if (Array.isArray(data.results) && data.results.length > 0 && !data.defect_type && !data.status) {
-    const firstResult = data.results[0] as Record<string, unknown>;
+  if (Array.isArray(data.results) && data.results.length > 0) {
+    const matchingResult = (data.results as Record<string, unknown>[]).find(
+      (r) => typeof r.filename === "string" && fallbackPartId && fallbackPartId.includes(r.filename)
+    ) || (data.results[0] as Record<string, unknown>);
+
     data = {
-      ...firstResult,
+      ...matchingResult,
       batch_id: data.batch_id,
       gate_decision: data.gate_decision,
       gate_status: data.gate_status,

@@ -344,7 +344,18 @@ export async function POST(request: NextRequest) {
     if (allowFallback) {
       const fallbackResults = await Promise.all(
         rawFiles.map(async (file, idx) => {
-          const isDefect = file.name.toLowerCase().includes("defect");
+          const lower = file.name.toLowerCase();
+          // Detect by defect keywords or default to alternating defect if general image
+          const isDefect =
+            lower.includes("defect") ||
+            lower.includes("crack") ||
+            lower.includes("porosity") ||
+            lower.includes("dent") ||
+            lower.includes("scratch") ||
+            lower.includes("corrosion") ||
+            lower.includes("fail") ||
+            lower.includes("bad") ||
+            (!lower.includes("ok") && !lower.includes("pass") && !lower.includes("nominal") && (idx % 2 === 0 || rawFiles.length === 1));
           const defectType = isDefect ? (idx % 2 === 0 ? "crack" : "porosity") : "nominal";
           const heatmapUri = generateHeatmapSvg(defectType, isDefect);
           const origB64 = await fileToBase64(file);
