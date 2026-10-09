@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -8,14 +8,11 @@ import {
   Scan,
   RotateCcw,
   Printer,
-  ShieldCheck,
   Image as ImageIcon,
   Activity,
-  Check,
-  FileText,
   Sliders,
-  ChevronDown,
-  ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   TrendingUp,
 } from "lucide-react";
 import { InspectionItem } from "@/lib/inspection-adapter";
@@ -59,30 +56,35 @@ export function LinenResults({
   errorState,
   onRetry,
 }: LinenResultsProps) {
-  // Navigation Tabs:
-  // Defective batch: 'report' (Batch Report) | 'visual' (Image) | 'telemetry' (Sensors) | 'json' (Details)
-  // OK batch:        'report' (Batch Report) | 'visual' (Image) | 'telemetry' (Sensors) | 'json' (Details)
-  const [activeTabOverride, setActiveTabOverride] = useState<string | null>(null);
-  const [lastPartId, setLastPartId] = useState<string | null>(null);
-  const [expandedImageIds, setExpandedImageIds] = useState<Record<string, boolean>>({});
+  // Navigation Tabs in the 75% workspace:
+  // 'visual' (Image with overlays) | 'telemetry' (Sensors) | 'json' (Details)
+  const [activeTab, setActiveTab] = useState<"visual" | "telemetry" | "json">("visual");
 
-  const toggleImageExpand = (id: string) => {
-    setExpandedImageIds((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
+  const carouselRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll selected card into carousel view smoothly
+  useEffect(() => {
+    if (carouselRef.current && carouselRef.current.children[selectedIndex]) {
+      const selectedCard = carouselRef.current.children[selectedIndex] as HTMLElement;
+      selectedCard.scrollIntoView({
+        behavior: "smooth",
+        block: "nearest",
+        inline: "center",
+      });
+    }
+  }, [selectedIndex]);
+
+  const handleScrollCarousel = (direction: "left" | "right") => {
+    if (carouselRef.current) {
+      const scrollAmount = direction === "left" ? -240 : 240;
+      carouselRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+    }
   };
-
-  // If operator switches active image in batch, reset tab override
-  if (activeItem && activeItem.id !== lastPartId) {
-    setLastPartId(activeItem.id);
-    setActiveTabOverride(null);
-  }
 
   // Loading State
   if (isLoading && !activeItem) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] text-center space-y-4">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] text-center space-y-4 min-h-[400px]">
         <div className="p-3 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] shadow-xs flex items-center justify-center">
           <DotsLoader size="md" shape="loader" />
         </div>
@@ -101,7 +103,7 @@ export function LinenResults({
   // Error State
   if (errorState && !activeItem) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 bg-[#FAF8F5] text-center space-y-5">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 sm:p-12 bg-[#FAF8F5] text-center space-y-5 min-h-[400px]">
         <div className="p-4 rounded-2xl bg-[#FEF2F2] border border-[#FCA5A5]/60 text-[#991B1B]">
           <AlertCircle aria-hidden="true" className="w-8 h-8" />
         </div>
@@ -132,7 +134,7 @@ export function LinenResults({
   // Empty Idle State
   if (!activeItem) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-14 bg-[#FAF8F5] text-center space-y-6">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-14 bg-[#FAF8F5] text-center space-y-6 min-h-[400px]">
         <div className="w-14 h-14 rounded-2xl bg-[#F3EFE6] border border-[#E2DBD0] flex items-center justify-center text-[#78716A] shadow-2xs">
           <Scan aria-hidden="true" className="w-7 h-7" />
         </div>
@@ -172,10 +174,6 @@ export function LinenResults({
   const anyDefectsInBatch = allItems.some((i) => i.status === "DEFECTIVE");
   const predictedDefects = activeItem.predictedDefects || [];
   const confidenceVal = Math.min(Math.max(activeItem.confidenceScore, 0), 100);
-
-  // Default tab is 'report' so the operator sees the full batch report first, with quick access to 'visual'
-  const defaultTab = "report";
-  const currentTab = activeTabOverride || defaultTab;
 
   const originalImg =
     activeItem.visionResults?.original_image_base64 ||
@@ -246,6 +244,20 @@ export function LinenResults({
   const defectiveItems = allItems.filter((item) => item.status === "DEFECTIVE");
   const passedItems = allItems.filter((item) => item.status === "PASSED");
 
+  const effectiveStats = batchStats || {
+    total: allItems.length,
+    passed: passedItems.length,
+    defective: defectiveItems.length,
+  };
+
+  const yieldPercentage =
+    effectiveStats.total > 0
+      ? Math.round((effectiveStats.passed / effectiveStats.total) * 100)
+      : 100;
+
+  // Filter out-of-tolerance telemetry parameters for quick reference
+  const outOfToleranceSensors = (activeItem.telemetry || []).filter((t) => t.isOutOfTolerance);
+
   // Handler for Exporting Formatted Batch PDF (directly triggers print dialog)
   const handlePrintPdf = () => {
     openPrintableBatchReport({
@@ -254,130 +266,291 @@ export function LinenResults({
       supervisorSummary,
       batchPrediction,
       batchFixes,
-      batchStats: batchStats || {
-        total: allItems.length,
-        passed: passedItems.length,
-        defective: defectiveItems.length,
-      },
+      batchStats: effectiveStats,
       items: allItems,
       rawJson,
     });
   };
 
-  // Primary Top-Level Tabs
-  const primaryTabs = [
+  // Primary Workspace Tabs for 75% pane
+  const workspaceTabs = [
     {
-      id: "report",
-      label: "Batch Report",
-      icon: FileText,
-    },
-    {
-      id: "visual",
-      label: "Image",
+      id: "visual" as const,
+      label: "Image Inspector",
       icon: ImageIcon,
     },
     {
-      id: "telemetry",
-      label: "Sensors",
+      id: "telemetry" as const,
+      label: "Process Sensors",
       icon: Activity,
     },
     {
-      id: "json",
-      label: "Details",
+      id: "json" as const,
+      label: "Raw Details",
       icon: Sliders,
     },
   ];
 
   return (
-    <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-4">
+    <div className="flex-1 w-full flex flex-col lg:flex-row p-3 sm:p-5 lg:p-6 gap-4 sm:gap-5 lg:gap-6 bg-[#FAF8F5] min-h-0 items-start">
       {/* =========================================================================
-          UNIFIED OPERATOR STATUS & NAVIGATION BAR
+          LEFT ~25% COLUMN: PERSISTENT BATCH GATE DECISION & EXECUTIVE REPORT
+          Stays anchored and visible across all tabs (Image, Sensors, Details)
       ========================================================================= */}
-      <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Defects Detected Status Pill + Image Selector */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Status Pill: Clean solid dot, no flashing */}
-          <div
-            className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-colors ${
-              anyDefectsInBatch
-                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-            }`}
-          >
-            <span
-              className={`w-2 h-2 rounded-full shrink-0 ${
-                anyDefectsInBatch ? "bg-[#EF4444]" : "bg-[#22C55E]"
-              }`}
-            />
-            <span>{anyDefectsInBatch ? "Defects Detected" : "All Good • Batch OK"}</span>
+      <aside
+        aria-label="Batch Gate Decision & Executive Summary"
+        className="w-full lg:w-[320px] xl:w-[360px] 2xl:w-[390px] shrink-0 space-y-3.5 lg:sticky lg:top-0"
+      >
+        {/* Card 1: Batch Gate Decision Banner */}
+        <section
+          className={`rounded-2xl border p-4 sm:p-5 space-y-3.5 shadow-xs transition-colors ${
+            gateDecision === "CRITICAL STOP"
+              ? "border-[#FCA5A5] bg-[#FFF5F5]"
+              : gateDecision === "ADJUST"
+              ? "border-[#FDE68A] bg-[#FFFDF5]"
+              : "border-[#86EFAC] bg-[#F0FDF4]"
+          }`}
+        >
+          {/* Header Row */}
+          <div className="flex items-start justify-between gap-2.5">
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`p-2 rounded-xl border shrink-0 ${
+                  gateDecision === "CRITICAL STOP"
+                    ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                    : gateDecision === "ADJUST"
+                    ? "bg-[#FEF3C7] border-[#FDE68A] text-[#92400E]"
+                    : "bg-[#FFFFFF] border-[#86EFAC] text-[#166534]"
+                }`}
+              >
+                {gateDecision === "GO" ? (
+                  <CheckCircle2 className="w-5 h-5 text-[#16A34A]" />
+                ) : (
+                  <AlertTriangle className="w-5 h-5 text-[#DC2626]" />
+                )}
+              </div>
+              <div>
+                <span className="text-[10px] font-bold tracking-wider uppercase text-[#78716A]">
+                  Batch Gate Decision
+                </span>
+                <h2 className="text-base font-extrabold text-[#1C1917] tracking-tight">
+                  {gateDecision}
+                </h2>
+              </div>
+            </div>
+
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#FFFFFF] border border-[#DDD5C7] text-[#57534E] shrink-0">
+              {effectiveBatchId}
+            </span>
           </div>
 
-          {/* Batch Selector (Labeled Image 1, Image 2, etc.) */}
-          {isBatch && allItems.length > 1 && (
-            <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-xl border border-[#E5DFD3]">
-              {allItems.map((item, idx) => {
-                const itemDefective = item.status === "DEFECTIVE";
-                const isSelected = selectedIndex === idx;
+          {/* Decision Subtext */}
+          <p className="text-xs text-[#57534E] leading-relaxed">
+            {gateDecision === "GO"
+              ? "All component contours and sensor corridors verified nominal. Cleared for line release."
+              : gateDecision === "ADJUST"
+              ? "Process telemetry drift or surface defects detected. Recalibrate setpoints before continuing."
+              : "Defect threshold exceeded. Automated line halted for engineer review."}
+          </p>
 
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelectIndex(idx)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5 transition-all cursor-pointer ${
-                      isSelected
-                        ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
-                        : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
-                    }`}
-                  >
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                        itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
-                      }`}
-                    />
-                    <span>Image {idx + 1}</span>
-                  </button>
-                );
-              })}
-
-              {batchStats && (
-                <span className="text-[11px] text-[#78716A] px-2 font-mono border-l border-[#E5DFD3] ml-0.5">
-                  {batchStats.passed}/{batchStats.total} OK
-                </span>
-              )}
+          {/* Yield & Metric Stats */}
+          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#EAE4D7]/70">
+            <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-0.5">
+              <div className="text-[10px] font-semibold text-[#78716A] uppercase tracking-wider">
+                Batch Yield
+              </div>
+              <div className="font-mono text-sm font-bold text-[#1C1917]">
+                {effectiveStats.passed} / {effectiveStats.total}
+              </div>
+              <div className="text-[10px] text-[#78716A]">
+                {yieldPercentage}% Pass Rate
+              </div>
             </div>
-          )}
 
-          {isBatchProcessing && (
-            <div className="px-2.5 py-1 text-xs font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center gap-1.5">
-              <DotsLoader size="sm" shape="loader" className="w-3.5 h-3.5" />
-              <span>Analyzing all batch components simultaneously…</span>
+            <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-0.5">
+              <div className="text-[10px] font-semibold text-[#78716A] uppercase tracking-wider">
+                Defect Count
+              </div>
+              <div className={`font-mono text-sm font-bold ${
+                effectiveStats.defective > 0 ? "text-[#991B1B]" : "text-[#166534]"
+              }`}>
+                {effectiveStats.defective} Defective
+              </div>
+              <div className="text-[10px] text-[#78716A]">
+                {effectiveStats.defective > 0 ? "Quarantine required" : "Zero defects"}
+              </div>
             </div>
-          )}
-        </div>
+          </div>
 
-        {/* Right: Primary Tabs + PDF Print Button */}
-        <div className="flex items-center gap-2">
+          {/* Export PDF Button */}
           <button
             type="button"
             onClick={handlePrintPdf}
-            title="Download or Print Batch Inspection Report PDF"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] text-xs font-semibold transition-all cursor-pointer shadow-2xs"
+            className="w-full py-2.5 px-3 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center justify-center gap-2 transition-[background-color,transform] duration-150 active:scale-[0.98] cursor-pointer shadow-xs"
           >
-            <Printer className="w-3.5 h-3.5 text-[#57534E]" />
-            <span>Export PDF</span>
+            <Printer className="w-3.5 h-3.5 text-[#FAF8F5]" />
+            <span>Export Batch PDF</span>
           </button>
+        </section>
 
+        {/* Card 2: Supervisor Briefing */}
+        {supervisorSummary && (
+          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
+            <div className="flex items-center justify-between">
+              <h3 className="font-bold text-[#1C1917] flex items-center gap-1.5">
+                <span>Supervisor Summary</span>
+              </h3>
+              {batchPrediction?.next_batch_risk !== undefined && (
+                <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
+                  Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
+                </span>
+              )}
+            </div>
+            <p className="text-[#57534E] leading-relaxed">
+              {supervisorSummary}
+            </p>
+          </section>
+        )}
+
+        {/* Card 3: Root Cause & Culprit Sensor */}
+        {(rootCauseAnalysisData || anyDefectsInBatch) && (
+          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
+            <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
+              <span>Probable Root Cause</span>
+            </div>
+            <p className="text-[#57534E] leading-relaxed">
+              {typeof rootCauseAnalysisData?.diagnostic_explanation === "string"
+                ? rootCauseAnalysisData.diagnostic_explanation
+                : typeof rootCauseAnalysisData?.probable_cause === "string"
+                ? rootCauseAnalysisData.probable_cause
+                : anyDefectsInBatch
+                ? "Hydraulic ram injection pressure or melt temperature fluctuation outside nominal Six Sigma corridor."
+                : "All thermal and mechanical telemetry recorded within nominal bounds."}
+            </p>
+            {Boolean(rootCauseAnalysisData?.primary_culprit_sensor) && (
+              <div className="inline-block text-[11px] font-mono px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] font-bold">
+                Culprit: {String(rootCauseAnalysisData?.primary_culprit_sensor).toUpperCase()}
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Card 4: Will Problem Continue? (Trend Prediction) */}
+        {batchPrediction?.text && (
+          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
+            <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
+              <span>Will Problem Continue?</span>
+            </div>
+            <p className="text-[#57534E] leading-relaxed">
+              {batchPrediction.text}
+            </p>
+            {batchPrediction?.next_batch_risk !== undefined && (
+              <div className="text-[11px] font-semibold text-[#78350F] pt-0.5">
+                Calculated Recurrence Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Card 5: Recommended Machine Setpoint Fixes */}
+        {batchFixes.length > 0 && (
+          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#FDE68A] space-y-2 shadow-2xs text-xs">
+            <div className="font-bold text-[#92400E] flex items-center gap-1.5">
+              <Sliders className="w-3.5 h-3.5 text-[#D97706]" />
+              <span>Machine Setpoint Fixes ({batchFixes.length})</span>
+            </div>
+            <div className="space-y-1.5">
+              {batchFixes.map((fix, idx) => (
+                <div
+                  key={idx}
+                  className="p-2.5 rounded-lg bg-[#FFFDF5] border border-[#FDE68A] space-y-1"
+                >
+                  <div className="flex items-center gap-1.5 font-medium text-[#1C1917]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#D97706] shrink-0" />
+                    <span>{fix.instruction}</span>
+                  </div>
+                  {fix.current !== undefined && fix.target !== undefined && (
+                    <div className="font-mono text-[11px] text-[#78716A] pl-3">
+                      {fix.current} → <span className="font-bold text-[#1C1917]">{fix.target} {fix.unit || ""}</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Card 6: Out-of-Tolerance Sensor Parameters Notice */}
+        {outOfToleranceSensors.length > 0 && (
+          <section className="p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
+            <div className="font-bold text-[#991B1B] flex items-center justify-between">
+              <span>Drift Alert ({outOfToleranceSensors.length} Sensors)</span>
+            </div>
+            <div className="space-y-1">
+              {outOfToleranceSensors.map((s) => (
+                <div
+                  key={s.id}
+                  className="flex items-center justify-between p-1.5 rounded-lg bg-[#FEF2F2] text-[11px]"
+                >
+                  <span className="font-medium text-[#1C1917]">{s.name}</span>
+                  <span className="font-mono font-bold text-[#991B1B]">
+                    {s.recordedValue} {s.unit}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+      </aside>
+
+      {/* =========================================================================
+          RIGHT ~75% COLUMN: CAROUSEL, VISUAL OVERLAY INSPECTION, SENSORS & DETAILS
+      ========================================================================= */}
+      <main className="flex-1 min-w-0 w-full space-y-4">
+        {/* Top Control Bar: Status Indicator + Workspace Tabs */}
+        <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          {/* Left: Solid Status Indicator (No Flashing) */}
+          <div className="flex items-center gap-3">
+            <div
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+                anyDefectsInBatch
+                  ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                  : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
+              }`}
+            >
+              <span
+                className={`w-2 h-2 rounded-full shrink-0 ${
+                  anyDefectsInBatch ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                }`}
+              />
+              <span>{anyDefectsInBatch ? "Defects Detected" : "All Good • Batch OK"}</span>
+            </div>
+
+            <span className="text-xs text-[#78716A]">
+              Batch of {allItems.length} {allItems.length === 1 ? "Image" : "Images"}
+            </span>
+
+            {isBatchProcessing && (
+              <div className="px-2.5 py-1 text-xs font-medium text-[#92400E] bg-[#FFFBEB] border border-[#FDE68A] rounded-xl flex items-center gap-1.5">
+                <DotsLoader size="sm" shape="loader" className="w-3.5 h-3.5" />
+                <span>Analyzing all components…</span>
+              </div>
+            )}
+          </div>
+
+          {/* Right: Workspace Tabs */}
           <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-xl border border-[#E5DFD3]">
-            {primaryTabs.map((tab) => {
+            {workspaceTabs.map((tab) => {
               const Icon = tab.icon;
-              const isActive = currentTab === tab.id;
+              const isActive = activeTab === tab.id;
 
               return (
                 <button
                   key={tab.id}
                   type="button"
-                  onClick={() => setActiveTabOverride(tab.id)}
+                  onClick={() => setActiveTab(tab.id)}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                     isActive
                       ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
@@ -395,490 +568,241 @@ export function LinenResults({
             })}
           </div>
         </div>
-      </div>
 
-      {/* =========================================================================
-          TAB 1: BATCH REPORT (EXECUTIVE SYNTHESIS & PER-IMAGE BREAKDOWN)
-          Shows the whole batch verdict, prediction, telemetry, and per-image details
-      ========================================================================= */}
-      {currentTab === "report" && (
-        <div className="space-y-5">
-          {/* Executive Whole-Batch Verdict Banner */}
+        {/* =========================================================================
+            BATCH IMAGES CAROUSEL (SCROLLABLE / TOGGLEABLE FOR EACH PART)
+            Shows thumbnail, defect badge, confidence, and active selection ring
+        ========================================================================= */}
+        {allItems.length > 0 && (
           <section
-            aria-label="Whole Batch Inspection Verdict"
-            className={`rounded-2xl border p-5 sm:p-6 space-y-4 shadow-xs ${
-              gateDecision === "CRITICAL STOP"
-                ? "border-[#FCA5A5] bg-[#FFF5F5]"
-                : gateDecision === "ADJUST"
-                ? "border-[#FDE68A] bg-[#FFFDF5]"
-                : "border-[#86EFAC] bg-[#F0FDF4]"
-            }`}
+            aria-label="Batch Image Carousel"
+            className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-4 shadow-xs space-y-2.5"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-2.5 rounded-xl border ${
-                    gateDecision === "CRITICAL STOP"
-                      ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                      : gateDecision === "ADJUST"
-                      ? "bg-[#FEF3C7] border-[#FDE68A] text-[#92400E]"
-                      : "bg-[#FFFFFF] border-[#86EFAC] text-[#166534]"
-                  }`}
-                >
-                  {gateDecision === "GO" ? (
-                    <CheckCircle2 className="w-6 h-6 text-[#16A34A]" />
-                  ) : (
-                    <AlertTriangle className="w-6 h-6 text-[#DC2626]" />
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-extrabold text-[#1C1917]">
-                      Batch Gate Decision: {gateDecision}
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#FFFFFF] border border-[#DDD5C7] text-[#57534E]">
-                      {effectiveBatchId}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#57534E] mt-0.5">
-                    {gateDecision === "GO"
-                      ? "All images verified nominal. The batch is cleared for downstream line release."
-                      : gateDecision === "ADJUST"
-                      ? "Process telemetry drift or defect detected. Apply setpoint adjustments before next run."
-                      : "Defect threshold exceeded. Assembly line halted for engineering review."}
-                  </p>
-                </div>
-              </div>
-
-              {/* Yield Pill & PDF Button */}
-              <div className="flex items-center gap-2">
-                <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFFFF] border border-[#DDD5C7] text-xs font-mono font-semibold text-[#1C1917]">
-                  Yield: {batchStats?.passed ?? passedItems.length} / {batchStats?.total ?? allItems.length} Passed
-                </div>
-                <button
-                  type="button"
-                  onClick={handlePrintPdf}
-                  className="px-3 py-1.5 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print PDF</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Supervisor Briefing (from Gemini LLM or Batch Engine) */}
-            {supervisorSummary && (
-              <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
-                <div className="font-semibold text-[#1C1917] flex items-center justify-between">
-                  <span>Supervisor Summary</span>
-                  {batchPrediction?.next_batch_risk !== undefined && (
-                    <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
-                      Next-Batch Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
-                    </span>
-                  )}
-                </div>
-                <p className="text-[#57534E] leading-relaxed">
-                  {supervisorSummary}
-                </p>
-              </div>
-            )}
-
-            {/* Probable Cause & Next-Batch Prediction Section */}
-            {(batchPrediction?.text || rootCauseAnalysisData) && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                {/* Probable Cause Card */}
-                <div className="p-3.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
-                  <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
-                    <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
-                    <span>Probable Root Cause</span>
-                  </div>
-                  <p className="text-[#57534E] leading-relaxed">
-                    {typeof rootCauseAnalysisData?.diagnostic_explanation === "string"
-                      ? rootCauseAnalysisData.diagnostic_explanation
-                      : typeof rootCauseAnalysisData?.probable_cause === "string"
-                      ? rootCauseAnalysisData.probable_cause
-                      : anyDefectsInBatch
-                      ? "Hydraulic ram injection pressure or melt temperature fluctuation outside nominal Six Sigma corridor."
-                      : "Process parameters stable within nominal tolerance bounds."}
-                  </p>
-                  {Boolean(rootCauseAnalysisData?.primary_culprit_sensor) && (
-                    <div className="text-[11px] font-mono text-[#991B1B] pt-1">
-                      Culprit: {String(rootCauseAnalysisData?.primary_culprit_sensor).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-
-                {/* Prediction: Will Problem Continue? */}
-                <div className="p-3.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
-                  <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
-                    <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
-                    <span>Will Problem Continue? (Trend Prediction)</span>
-                  </div>
-                  <p className="text-[#57534E] leading-relaxed">
-                    {batchPrediction?.text ||
-                      (anyDefectsInBatch
-                        ? "High probability of recurring defect signatures on subsequent batches unless setpoint fixes are applied."
-                        : "Thermal and mechanical baselines indicate zero drift risk for upcoming cycles.")}
-                  </p>
-                  {batchPrediction?.next_batch_risk !== undefined && (
-                    <div className="text-[11px] font-semibold text-[#78350F] pt-1">
-                      Calculated Recurrence Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Batch Fixes */}
-            {batchFixes.length > 0 && (
-              <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#FDE68A] space-y-2 text-xs">
-                <div className="font-semibold text-[#92400E] flex items-center gap-1.5">
-                  <Sliders className="w-4 h-4 text-[#D97706]" />
-                  <span>Recommended Machine Setpoint Fixes ({batchFixes.length})</span>
-                </div>
-                <div className="space-y-1.5">
-                  {batchFixes.map((fix, idx) => (
-                    <div
-                      key={idx}
-                      className="p-2.5 rounded-lg bg-[#FFFDF5] border border-[#FDE68A] flex items-center justify-between text-xs gap-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#D97706]" />
-                        <span className="font-medium text-[#1C1917]">{fix.instruction}</span>
-                      </div>
-                      {fix.current !== undefined && fix.target !== undefined && (
-                        <span className="font-mono text-[11px] text-[#78716A] tabular-nums shrink-0">
-                          {fix.current} → {fix.target} {fix.unit || ""}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Section: Batch Images Breakdown with Overlays & Probable Causes */}
-          <section className="space-y-3">
+            {/* Carousel Header with Navigation Controls */}
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
-                <span>Batch Images Breakdown</span>
-                <span className="text-xs font-mono text-[#78716A]">({allItems.length} images)</span>
-              </h3>
-              <span className="text-xs text-[#78716A]">
-                Showing defect status, visual overlays, and probable causes
-              </span>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-[#78716A]">
+                  Batch Images ({allItems.length})
+                </h3>
+                <span className="text-xs font-semibold text-[#1C1917]">
+                  • Active: Image {selectedIndex + 1}
+                </span>
+              </div>
+
+              {allItems.length > 1 && (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleScrollCarousel("left")}
+                    aria-label="Scroll images left"
+                    className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] transition-colors cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleScrollCarousel("right")}
+                    aria-label="Scroll images right"
+                    className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] transition-colors cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="space-y-3">
+            {/* Scrollable Track */}
+            <div
+              ref={carouselRef}
+              className="flex items-center gap-3 overflow-x-auto pb-1.5 pt-0.5 scrollbar-thin scroll-smooth"
+            >
               {allItems.map((item, idx) => {
                 const itemDefective = item.status === "DEFECTIVE";
-                const isExpanded = expandedImageIds[item.id] ?? true; // expanded by default
-                const isCurrentActive = selectedIndex === idx;
+                const isSelected = selectedIndex === idx;
 
-                const itemOrigImg =
+                const itemImg =
                   item.visionResults?.original_image_base64 ||
                   item.visionResults?.original_url ||
                   item.rawImageUrl;
-                const itemHeatImg =
-                  item.visionResults?.heatmap_image_base64 ||
-                  item.visionResults?.heatmap_png_url ||
-                  item.heatmapImageUrl;
 
-                const defectsList =
+                const defectLabel =
                   item.predictedDefects && item.predictedDefects.length > 0
-                    ? item.predictedDefects.join(", ")
+                    ? item.predictedDefects[0]
                     : item.defectType || (itemDefective ? "Defect" : "Nominal");
 
                 return (
-                  <div
+                  <button
                     key={item.id}
-                    className={`rounded-2xl border transition-all ${
-                      itemDefective
-                        ? "border-[#FCA5A5] bg-[#FFFFFF]"
-                        : "border-[#E5DFD3] bg-[#FFFFFF]"
-                    } ${isCurrentActive ? "ring-2 ring-[#1C1917]" : ""}`}
+                    type="button"
+                    onClick={() => {
+                      onSelectIndex(idx);
+                    }}
+                    className={`min-w-[190px] sm:min-w-[210px] max-w-[220px] shrink-0 p-2.5 rounded-xl border transition-all text-left cursor-pointer group ${
+                      isSelected
+                        ? "ring-2 ring-[#1C1917] border-[#1C1917] bg-[#FFFFFF] shadow-sm"
+                        : "border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#FFFFFF] hover:border-[#DDD5C7]"
+                    }`}
                   >
-                    {/* Header Row */}
-                    <div
-                      onClick={() => toggleImageExpand(item.id)}
-                      className="p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
+                    {/* Thumbnail Container */}
+                    <div className="aspect-16/10 rounded-lg bg-[#1C1917] overflow-hidden relative mb-2 flex items-center justify-center border border-[#EAE4D7]">
+                      {itemImg ? (
+                        <img
+                          src={itemImg}
+                          alt={`Thumbnail Image ${idx + 1}`}
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                      ) : (
+                        <span className="text-[10px] text-[#A8A29E]">No Preview</span>
+                      )}
+
+                      {/* Small Status Badge Overlay */}
+                      <div className="absolute top-1.5 right-1.5">
                         <span
-                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                          className={`w-2.5 h-2.5 rounded-full block border border-white shadow-2xs ${
                             itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
                           }`}
                         />
-                        <div className="truncate">
-                          <span className="font-bold text-xs text-[#1C1917]">
-                            Image {idx + 1} ({item.partId})
-                          </span>
-                          <span className="text-[11px] text-[#78716A] ml-2">
-                            {item.fileName ? item.fileName : item.serialNumber}
-                          </span>
-                        </div>
                       </div>
 
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
-                            itemDefective
-                              ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                              : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-                          }`}
-                        >
-                          {itemDefective ? defectsList : "Pass • Nominal"}
-                        </span>
-
-                        <span className="font-mono text-xs text-[#57534E]">
-                          {Math.round(item.confidenceScore)}%
-                        </span>
-
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-[#78716A]" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-[#78716A]" />
-                        )}
+                      {/* Pill indicating Image number */}
+                      <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-[#1C1917]/80 backdrop-blur-xs text-[10px] font-mono text-[#FAF8F5]">
+                        Img {idx + 1}
                       </div>
                     </div>
 
-                    {/* Image Details Body */}
-                    {isExpanded && (
-                      <div className="px-4 pb-4 pt-1 border-t border-[#EAE4D7] space-y-3.5 text-xs">
-                        {/* Image Pairs: Original + Heatmap Side-by-Side */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                          <div className="space-y-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716A]">
-                              Original Photo
-                            </span>
-                            <div className="aspect-4/3 rounded-xl border border-[#E5DFD3] bg-[#1C1917] overflow-hidden flex items-center justify-center">
-                              {itemOrigImg ? (
-                                <img
-                                  src={itemOrigImg}
-                                  alt={`Image ${idx + 1} original`}
-                                  className="w-full h-full object-contain"
-                                />
-                              ) : (
-                                <span className="text-[#A8A29E] text-xs">No image available</span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716A]">
-                              Defect Localization Overlay (Grad-CAM)
-                            </span>
-                            <div className="aspect-4/3 rounded-xl border border-[#E5DFD3] bg-[#1C1917] overflow-hidden flex items-center justify-center relative">
-                              {itemOrigImg && (
-                                <img
-                                  src={itemOrigImg}
-                                  alt={`Image ${idx + 1} base`}
-                                  className="w-full h-full object-contain"
-                                />
-                              )}
-                              {itemHeatImg && (
-                                <img
-                                  src={itemHeatImg}
-                                  alt={`Image ${idx + 1} heatmap`}
-                                  className="w-full h-full object-contain absolute inset-0 mix-blend-screen opacity-90"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Diagnostic & Telemetry Attribution Strip */}
-                        <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EAE4D7] space-y-1.5 text-xs">
-                          <div>
-                            <strong className="text-[#1C1917]">Defect Status: </strong>
-                            <span className={itemDefective ? "text-[#991B1B] font-semibold" : "text-[#166534] font-semibold"}>
-                              {itemDefective ? defectsList : "Nominal Contour"}
-                            </span>
-                          </div>
-                          {item.rootCauseSummary && (
-                            <div className="text-[#57534E]">
-                              <strong className="text-[#1C1917]">Probable Cause / Note: </strong>
-                              {item.rootCauseSummary}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Button to Select this Image as Primary in Visual Tab */}
-                        <div className="flex items-center justify-end gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onSelectIndex(idx);
-                              setActiveTabOverride("visual");
-                            }}
-                            className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
-                          >
-                            Open in Full Visual Inspector →
-                          </button>
-                        </div>
+                    {/* Metadata */}
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between gap-1">
+                        <span className="font-bold text-xs text-[#1C1917] truncate">
+                          Image {idx + 1}
+                        </span>
+                        <span className="text-[10px] font-mono text-[#78716A]">
+                          {Math.round(item.confidenceScore)}%
+                        </span>
                       </div>
-                    )}
-                  </div>
+
+                      <div className="flex items-center justify-between gap-1">
+                        <span
+                          className={`text-[11px] font-semibold truncate ${
+                            itemDefective ? "text-[#991B1B]" : "text-[#166534]"
+                          }`}
+                        >
+                          {itemDefective ? defectLabel : "Pass • Nominal"}
+                        </span>
+
+                        {isSelected && (
+                          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-[#1C1917] text-[#FAF8F5]">
+                            Active
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </button>
                 );
               })}
             </div>
           </section>
+        )}
 
-          {/* Section: Batch Telemetry Summary Table */}
-          <section className="space-y-3">
-            <h3 className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
-              <span>Batch Telemetry Baseline Summary</span>
-            </h3>
-            <div className="border border-[#E5DFD3] rounded-2xl overflow-hidden bg-[#FFFFFF]">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-[#FAF8F5] border-b border-[#EAE4D7] text-[10px] font-bold text-[#78716A] uppercase tracking-wider">
-                  <tr>
-                    <th className="p-3">Sensor Parameter</th>
-                    <th className="p-3 text-center">Nominal Target</th>
-                    <th className="p-3 text-center">Corridor</th>
-                    <th className="p-3 text-center">Recorded Value</th>
-                    <th className="p-3 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#EAE4D7]">
-                  {(activeItem.telemetry || []).map((t) => (
-                    <tr
-                      key={t.id}
-                      className={t.isOutOfTolerance ? "bg-[#FEF2F2]" : "hover:bg-[#FAF8F5]"}
-                    >
-                      <td className="p-3 font-semibold text-[#1C1917]">{t.name}</td>
-                      <td className="p-3 text-center font-mono text-[#57534E]">
-                        {t.nominalTarget} {t.unit}
-                      </td>
-                      <td className="p-3 text-center font-mono text-[#78716A]">
-                        {t.nominalMin} – {t.nominalMax} {t.unit}
-                      </td>
-                      <td
-                        className={`p-3 text-center font-mono font-bold ${
-                          t.isOutOfTolerance ? "text-[#991B1B]" : "text-[#1C1917]"
-                        }`}
-                      >
-                        {t.recordedValue} {t.unit}
-                      </td>
-                      <td className="p-3 text-right">
-                        <span
-                          className={`font-semibold text-[11px] ${
-                            t.isOutOfTolerance ? "text-[#991B1B]" : "text-[#166534]"
-                          }`}
-                        >
-                          {t.isOutOfTolerance ? "Out of Tolerance" : "Nominal"}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
+        {/* =========================================================================
+            WORKSPACE CONTENT: BASED ON ACTIVE TAB
+        ========================================================================= */}
 
-      {/* =========================================================================
-          TAB 2: VISUAL DIAGNOSTICS (IMAGE FORWARD)
-      ========================================================================= */}
-      {currentTab === "visual" && (
-        <div className="space-y-3">
-          <DefectSegmenter
-            originalImage={originalImg}
-            heatmapImage={heatmapImg}
-            segmentationInstances={activeItem.segmentationInstances}
-            defectType={
-              predictedDefects.length > 0
-                ? predictedDefects.join(", ")
-                : activeItem.defectType || (isDefective ? "Localized Defect" : "Nominal Surface")
-            }
-            severity={activeItem.severity || (isDefective ? "Critical" : "Nominal")}
-            confidence={activeItem.confidenceScore}
-            stationName={activeItem.metadata?.stationId || "Automated Line • Station 04"}
-            hotspots={activeItem.visionResults?.hotspots}
-          />
+        {/* TAB 1: VISUAL INSPECTOR (DEFAULT) - Shows DefectSegmenter with all overlays */}
+        {activeTab === "visual" && (
+          <div className="space-y-3">
+            <DefectSegmenter
+              originalImage={originalImg}
+              heatmapImage={heatmapImg}
+              segmentationInstances={activeItem.segmentationInstances}
+              defectType={
+                predictedDefects.length > 0
+                  ? predictedDefects.join(", ")
+                  : activeItem.defectType || (isDefective ? "Localized Defect" : "Nominal Surface")
+              }
+              severity={activeItem.severity || (isDefective ? "Critical" : "Nominal")}
+              confidence={activeItem.confidenceScore}
+              stationName={activeItem.metadata?.stationId || "Automated Line • Station 04"}
+              hotspots={activeItem.visionResults?.hotspots}
+            />
 
-          {/* Quick Context Strip beneath the Image */}
-          <div className="p-3.5 rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
-              <div className="flex items-center gap-2">
-                <span className="font-bold text-[#1C1917]">
-                  {isDefective ? "Defect:" : "Status:"}
-                </span>
-                <span
-                  className={`font-semibold ${
-                    isDefective ? "text-[#991B1B]" : "text-[#166534]"
-                  }`}
-                >
-                  {isDefective
-                    ? predictedDefects.length > 0
-                      ? predictedDefects.join(", ")
-                      : activeItem.defectType || "Surface anomaly detected"
-                    : "No defects found"}
-                </span>
-                {isDefective && (
-                  <span className="text-[#78716A] text-[11px] font-mono">
-                    ({confidenceVal.toFixed(1)}% confidence)
+            {/* Quick Context Strip beneath the Image Inspector */}
+            <div className="p-3.5 rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[#1C1917]">
+                    {isDefective ? "Defect Detected:" : "Inspection Status:"}
                   </span>
-                )}
+                  <span
+                    className={`font-semibold ${
+                      isDefective ? "text-[#991B1B]" : "text-[#166534]"
+                    }`}
+                  >
+                    {isDefective
+                      ? predictedDefects.length > 0
+                        ? predictedDefects.join(", ")
+                        : activeItem.defectType || "Surface anomaly detected"
+                      : "Nominal Contour • Ready"}
+                  </span>
+                  {isDefective && (
+                    <span className="text-[#78716A] text-[11px] font-mono">
+                      ({confidenceVal.toFixed(1)}% confidence)
+                    </span>
+                  )}
+                </div>
+
+                <span className="hidden sm:inline text-[#DDD5C7]">•</span>
+
+                <span className="text-[#57534E]">
+                  {isDefective
+                    ? "Action: Quarantine component — do not release downstream."
+                    : "Action: Component cleared for downstream line release."}
+                </span>
               </div>
 
-              <span className="hidden sm:inline text-[#DDD5C7]">•</span>
-
-              <span className="text-[#57534E]">
-                {isDefective
-                  ? "Action: Quarantine this part — do not pass to assembly."
-                  : "Action: Ready for assembly."}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setActiveTabOverride("report")}
-                className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
-              >
-                View Batch Report →
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTabOverride("telemetry")}
-                className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] text-xs transition-colors cursor-pointer"
-              >
-                Check Sensors →
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("telemetry")}
+                  className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
+                >
+                  Inspect Sensors →
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("json")}
+                  className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] hover:text-[#1C1917] text-xs transition-colors cursor-pointer"
+                >
+                  Raw Details →
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* =========================================================================
-          TAB 3: PROCESS TELEMETRY & HISTORICAL SPARKLINE TRENDS
-      ========================================================================= */}
-      {currentTab === "telemetry" && (
-        <ProcessTelemetryDossier
-          telemetry={activeItem.telemetry}
-          rawTelemetry={rawTelemetryDict}
-          rootCauseAnalysis={rootCauseAnalysisData}
-          isDefective={isDefective}
-        />
-      )}
+        {/* TAB 2: PROCESS TELEMETRY & HISTORICAL TRENDS */}
+        {activeTab === "telemetry" && (
+          <ProcessTelemetryDossier
+            telemetry={activeItem.telemetry}
+            rawTelemetry={rawTelemetryDict}
+            rootCauseAnalysis={rootCauseAnalysisData}
+            isDefective={isDefective}
+          />
+        )}
 
-      {/* =========================================================================
-          TAB 4: RAW DIAGNOSTIC JSON OUTPUT
-      ========================================================================= */}
-      {currentTab === "json" && rawJson && (
-        <LinenJsonViewer
-          data={rawJson}
-          defaultExpanded={true}
-          title={
-            isDefective
-              ? "Integrated Pipeline JSON Output"
-              : "Classification JSON Output"
-          }
-        />
-      )}
+        {/* TAB 3: RAW DIAGNOSTIC JSON OUTPUT */}
+        {activeTab === "json" && rawJson && (
+          <LinenJsonViewer
+            data={rawJson}
+            defaultExpanded={true}
+            title={
+              isDefective
+                ? "Integrated Diagnostic Payload"
+                : "Classification Payload"
+            }
+          />
+        )}
+      </main>
     </div>
   );
 }
