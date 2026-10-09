@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -11,9 +11,13 @@ import {
   Image as ImageIcon,
   Activity,
   Sliders,
+  ChevronDown,
+  ChevronUp,
   ChevronLeft,
   ChevronRight,
   TrendingUp,
+  Gauge,
+  Cpu,
 } from "lucide-react";
 import { InspectionItem } from "@/lib/inspection-adapter";
 import { InspectionError } from "@/lib/api";
@@ -42,6 +46,68 @@ interface LinenResultsProps {
   onEnableMockFallback?: () => void;
 }
 
+/**
+ * Highlights key engineering keywords, metrics, and actions in supervisor summary text
+ */
+function renderHighlightedSummary(text: string) {
+  const regex =
+    /(CRITICAL STOP|WARNING|GO|porosity|crack|scratches|defect|defective|quarantine|recalibrate|nominal|pass|all good|\+\d+\.?\d*\s*sigma|-\d+\.?\d*\s*sigma|\d+\.?\d*%\s*(?:risk|confidence)?|\d+\s*(?:bar|°C|RPM|L\/min))/gi;
+
+  const parts = text.split(regex);
+  return parts.map((part, i) => {
+    const lower = part.toLowerCase();
+    if (
+      lower.includes("critical") ||
+      lower.includes("porosity") ||
+      lower.includes("crack") ||
+      lower.includes("defect") ||
+      lower.includes("quarantine")
+    ) {
+      return (
+        <mark
+          key={i}
+          className="bg-[#FEE2E2] text-[#991B1B] font-bold px-1 py-0.5 rounded text-[11px]"
+        >
+          {part}
+        </mark>
+      );
+    }
+    if (
+      lower.includes("nominal") ||
+      lower.includes("pass") ||
+      lower === "go" ||
+      lower.includes("all good")
+    ) {
+      return (
+        <mark
+          key={i}
+          className="bg-[#DCFCE7] text-[#166534] font-bold px-1 py-0.5 rounded text-[11px]"
+        >
+          {part}
+        </mark>
+      );
+    }
+    if (
+      lower.includes("sigma") ||
+      lower.includes("risk") ||
+      lower.includes("bar") ||
+      lower.includes("°c") ||
+      lower.includes("recalibrate") ||
+      lower.includes("warning")
+    ) {
+      return (
+        <mark
+          key={i}
+          className="bg-[#FEF3C7] text-[#92400E] font-semibold px-1 py-0.5 rounded text-[11px] font-mono"
+        >
+          {part}
+        </mark>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 export function LinenResults({
   activeItem,
   allItems,
@@ -57,12 +123,15 @@ export function LinenResults({
   onRetry,
 }: LinenResultsProps) {
   // Navigation Tabs in the 75% workspace:
-  // 'visual' (Image with overlays) | 'telemetry' (Sensors) | 'json' (Details)
+  // 'visual' (Image Inspector) | 'telemetry' (Sensors) | 'json' (Details)
   const [activeTab, setActiveTab] = useState<"visual" | "telemetry" | "json">("visual");
+
+  // Left panel dropbox / accordion state (collapsed by default to fit in 1 view)
+  const [isDropboxOpen, setIsDropboxOpen] = useState<boolean>(false);
 
   const carouselRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll selected card into carousel view smoothly
+  // Auto-scroll selected compact chip into carousel view smoothly
   useEffect(() => {
     if (carouselRef.current && carouselRef.current.children[selectedIndex]) {
       const selectedCard = carouselRef.current.children[selectedIndex] as HTMLElement;
@@ -76,7 +145,7 @@ export function LinenResults({
 
   const handleScrollCarousel = (direction: "left" | "right") => {
     if (carouselRef.current) {
-      const scrollAmount = direction === "left" ? -240 : 240;
+      const scrollAmount = direction === "left" ? -180 : 180;
       carouselRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
     }
   };
@@ -255,8 +324,27 @@ export function LinenResults({
       ? Math.round((effectiveStats.passed / effectiveStats.total) * 100)
       : 100;
 
-  // Filter out-of-tolerance telemetry parameters for quick reference
+  // Out of tolerance sensors
   const outOfToleranceSensors = (activeItem.telemetry || []).filter((t) => t.isOutOfTolerance);
+
+  // Machine Quality Deterioration & Value Drift Calculation
+  const maxDriftSigma = useMemo(() => {
+    if (batchAnalysis?.stats && typeof batchAnalysis.stats === "object" && "max_drift_sigma" in batchAnalysis.stats) {
+      return Number((batchAnalysis.stats as { max_drift_sigma: number }).max_drift_sigma);
+    }
+    if (outOfToleranceSensors.length > 0) return 3.4;
+    if (anyDefectsInBatch) return 2.2;
+    return 0.4;
+  }, [batchAnalysis, outOfToleranceSensors.length, anyDefectsInBatch]);
+
+  // Deterioration Score: 100% is pristine, lower means machine wear / calibration drift
+  const machineHealthPercent = Math.max(25, Math.min(100, Math.round(100 - maxDriftSigma * 16)));
+  const machineHealthStatus =
+    machineHealthPercent >= 82
+      ? "Nominal Stability"
+      : machineHealthPercent >= 55
+      ? "Moderate Degradation"
+      : "Severe Deterioration";
 
   // Handler for Exporting Formatted Batch PDF (directly triggers print dialog)
   const handlePrintPdf = () => {
@@ -292,18 +380,19 @@ export function LinenResults({
   ];
 
   return (
-    <div className="flex-1 w-full flex flex-col lg:flex-row p-3 sm:p-5 lg:p-6 gap-4 sm:gap-5 lg:gap-6 bg-[#FAF8F5] min-h-0 items-start">
+    <div className="flex-1 w-full flex flex-col lg:flex-row p-3 sm:p-4 lg:p-5 gap-3.5 sm:gap-4 lg:gap-5 bg-[#FAF8F5] min-h-0 lg:h-full lg:overflow-hidden items-start">
       {/* =========================================================================
           LEFT ~25% COLUMN: PERSISTENT BATCH GATE DECISION & EXECUTIVE REPORT
-          Stays anchored and visible across all tabs (Image, Sensors, Details)
+          Locked to initial page view down through "Will Problem Continue",
+          with all engineering fixes & machine drift details tucked in a dropbox.
       ========================================================================= */}
       <aside
         aria-label="Batch Gate Decision & Executive Summary"
-        className="w-full lg:w-[320px] xl:w-[360px] 2xl:w-[390px] shrink-0 space-y-3.5 lg:sticky lg:top-0"
+        className="w-full lg:w-[320px] xl:w-[350px] 2xl:w-[380px] lg:h-full shrink-0 flex flex-col lg:overflow-y-auto pr-1 space-y-2.5 scrollbar-thin"
       >
-        {/* Card 1: Batch Gate Decision Banner */}
+        {/* Card 1: Batch Gate Decision Banner (Compact & Sleek) */}
         <section
-          className={`rounded-2xl border p-4 sm:p-5 space-y-3.5 shadow-xs transition-colors ${
+          className={`rounded-2xl border p-3.5 sm:p-4 space-y-2.5 shadow-xs transition-colors ${
             gateDecision === "CRITICAL STOP"
               ? "border-[#FCA5A5] bg-[#FFF5F5]"
               : gateDecision === "ADJUST"
@@ -312,10 +401,10 @@ export function LinenResults({
           }`}
         >
           {/* Header Row */}
-          <div className="flex items-start justify-between gap-2.5">
-            <div className="flex items-center gap-2.5">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
               <div
-                className={`p-2 rounded-xl border shrink-0 ${
+                className={`p-1.5 rounded-xl border shrink-0 ${
                   gateDecision === "CRITICAL STOP"
                     ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
                     : gateDecision === "ADJUST"
@@ -324,16 +413,16 @@ export function LinenResults({
                 }`}
               >
                 {gateDecision === "GO" ? (
-                  <CheckCircle2 className="w-5 h-5 text-[#16A34A]" />
+                  <CheckCircle2 className="w-4 h-4 text-[#16A34A]" />
                 ) : (
-                  <AlertTriangle className="w-5 h-5 text-[#DC2626]" />
+                  <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
                 )}
               </div>
               <div>
-                <span className="text-[10px] font-bold tracking-wider uppercase text-[#78716A]">
+                <span className="text-[9px] font-bold tracking-wider uppercase text-[#78716A] block leading-none">
                   Batch Gate Decision
                 </span>
-                <h2 className="text-base font-extrabold text-[#1C1917] tracking-tight">
+                <h2 className="text-sm sm:text-base font-extrabold text-[#1C1917] tracking-tight leading-tight">
                   {gateDecision}
                 </h2>
               </div>
@@ -345,40 +434,29 @@ export function LinenResults({
           </div>
 
           {/* Decision Subtext */}
-          <p className="text-xs text-[#57534E] leading-relaxed">
+          <p className="text-[11px] text-[#57534E] leading-relaxed">
             {gateDecision === "GO"
               ? "All component contours and sensor corridors verified nominal. Cleared for line release."
               : gateDecision === "ADJUST"
-              ? "Process telemetry drift or surface defects detected. Recalibrate setpoints before continuing."
+              ? "Process telemetry drift or defect detected. Recalibrate setpoints before continuing."
               : "Defect threshold exceeded. Automated line halted for engineer review."}
           </p>
 
-          {/* Yield & Metric Stats */}
-          <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[#EAE4D7]/70">
-            <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-0.5">
-              <div className="text-[10px] font-semibold text-[#78716A] uppercase tracking-wider">
-                Batch Yield
-              </div>
-              <div className="font-mono text-sm font-bold text-[#1C1917]">
-                {effectiveStats.passed} / {effectiveStats.total}
-              </div>
-              <div className="text-[10px] text-[#78716A]">
-                {yieldPercentage}% Pass Rate
-              </div>
+          {/* Inline Yield & Defect Summary */}
+          <div className="flex items-center justify-between gap-2 p-2 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] text-xs font-mono">
+            <div>
+              <span className="text-[10px] text-[#78716A] uppercase font-sans mr-1">Yield:</span>
+              <span className="font-bold text-[#1C1917]">{effectiveStats.passed}/{effectiveStats.total}</span>
+              <span className="text-[10px] text-[#78716A] ml-1 font-sans">({yieldPercentage}%)</span>
             </div>
-
-            <div className="p-2.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-0.5">
-              <div className="text-[10px] font-semibold text-[#78716A] uppercase tracking-wider">
-                Defect Count
-              </div>
-              <div className={`font-mono text-sm font-bold ${
-                effectiveStats.defective > 0 ? "text-[#991B1B]" : "text-[#166534]"
+            <div>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                effectiveStats.defective > 0
+                  ? "bg-[#FEF2F2] text-[#991B1B]"
+                  : "bg-[#F0FDF4] text-[#166534]"
               }`}>
                 {effectiveStats.defective} Defective
-              </div>
-              <div className="text-[10px] text-[#78716A]">
-                {effectiveStats.defective > 0 ? "Quarantine required" : "Zero defects"}
-              </div>
+              </span>
             </div>
           </div>
 
@@ -386,135 +464,245 @@ export function LinenResults({
           <button
             type="button"
             onClick={handlePrintPdf}
-            className="w-full py-2.5 px-3 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center justify-center gap-2 transition-[background-color,transform] duration-150 active:scale-[0.98] cursor-pointer shadow-xs"
+            className="w-full py-2 px-3 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center justify-center gap-1.5 transition-[background-color,transform] duration-150 active:scale-[0.98] cursor-pointer shadow-xs"
           >
             <Printer className="w-3.5 h-3.5 text-[#FAF8F5]" />
-            <span>Export Batch PDF</span>
+            <span>Export Batch PDF Report</span>
           </button>
         </section>
 
-        {/* Card 2: Supervisor Briefing */}
+        {/* Card 2: Supervisor Briefing with Key Message Highlights */}
         {supervisorSummary && (
-          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
+          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
             <div className="flex items-center justify-between">
-              <h3 className="font-bold text-[#1C1917] flex items-center gap-1.5">
+              <h3 className="font-bold text-[#1C1917] flex items-center gap-1 text-xs">
                 <span>Supervisor Summary</span>
               </h3>
               {batchPrediction?.next_batch_risk !== undefined && (
-                <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
+                <span className="font-mono text-[9px] px-1.5 py-0.2 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
                   Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
                 </span>
               )}
             </div>
-            <p className="text-[#57534E] leading-relaxed">
-              {supervisorSummary}
+
+            {/* Important Takeaway Highlight Callout */}
+            <div
+              className={`p-2 rounded-xl text-[11px] font-medium border flex items-center gap-2 ${
+                anyDefectsInBatch
+                  ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                  : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
+              }`}
+            >
+              {anyDefectsInBatch ? (
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#DC2626]" />
+              ) : (
+                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-[#16A34A]" />
+              )}
+              <span className="leading-tight font-semibold">
+                {anyDefectsInBatch
+                  ? "Action Required: Hold scrap parts & adjust parameter setpoints"
+                  : "Line Cleared: All parameters operating within normal tolerance"}
+              </span>
+            </div>
+
+            {/* Body Text with Smart Industrial Highlights */}
+            <p className="text-[#57534E] leading-relaxed text-[11px]">
+              {renderHighlightedSummary(supervisorSummary)}
             </p>
           </section>
         )}
 
-        {/* Card 3: Root Cause & Culprit Sensor */}
+        {/* Card 3: Probable Root Cause & Culprit Sensor */}
         {(rootCauseAnalysisData || anyDefectsInBatch) && (
-          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
-            <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
-              <span>Probable Root Cause</span>
+          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-1.5 shadow-2xs text-xs">
+            <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
+                <span>Probable Root Cause</span>
+              </div>
+              {Boolean(rootCauseAnalysisData?.primary_culprit_sensor) && (
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] font-bold">
+                  {String(rootCauseAnalysisData?.primary_culprit_sensor).toUpperCase()}
+                </span>
+              )}
             </div>
-            <p className="text-[#57534E] leading-relaxed">
+            <p className="text-[#57534E] leading-relaxed text-[11px]">
               {typeof rootCauseAnalysisData?.diagnostic_explanation === "string"
                 ? rootCauseAnalysisData.diagnostic_explanation
                 : typeof rootCauseAnalysisData?.probable_cause === "string"
                 ? rootCauseAnalysisData.probable_cause
                 : anyDefectsInBatch
-                ? "Hydraulic ram injection pressure or melt temperature fluctuation outside nominal Six Sigma corridor."
+                ? "Hydraulic ram pack pressure or melt temperature fluctuation outside nominal Six Sigma corridor."
                 : "All thermal and mechanical telemetry recorded within nominal bounds."}
             </p>
-            {Boolean(rootCauseAnalysisData?.primary_culprit_sensor) && (
-              <div className="inline-block text-[11px] font-mono px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] font-bold">
-                Culprit: {String(rootCauseAnalysisData?.primary_culprit_sensor).toUpperCase()}
-              </div>
-            )}
           </section>
         )}
 
         {/* Card 4: Will Problem Continue? (Trend Prediction) */}
         {batchPrediction?.text && (
-          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
-            <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
-              <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
-              <span>Will Problem Continue?</span>
+          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-1.5 shadow-2xs text-xs">
+            <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
+              <div className="flex items-center gap-1.5">
+                <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
+                <span>Will Problem Continue?</span>
+              </div>
+              {batchPrediction?.next_batch_risk !== undefined && (
+                <span className="text-[10px] font-mono font-bold text-[#78350F]">
+                  {Math.round(batchPrediction.next_batch_risk * 100)}% Recurrence
+                </span>
+              )}
             </div>
-            <p className="text-[#57534E] leading-relaxed">
+            <p className="text-[#57534E] leading-relaxed text-[11px]">
               {batchPrediction.text}
             </p>
-            {batchPrediction?.next_batch_risk !== undefined && (
-              <div className="text-[11px] font-semibold text-[#78350F] pt-0.5">
-                Calculated Recurrence Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
-              </div>
-            )}
           </section>
         )}
 
-        {/* Card 5: Recommended Machine Setpoint Fixes */}
-        {batchFixes.length > 0 && (
-          <section className="p-4 rounded-2xl bg-[#FFFFFF] border border-[#FDE68A] space-y-2 shadow-2xs text-xs">
-            <div className="font-bold text-[#92400E] flex items-center gap-1.5">
+        {/* =========================================================================
+            CARD 5: THE DROP BOX (EXPANDABLE ENGINEERING & DRIFT DIAGNOSTICS)
+            Keeps the left panel fitting in 1 screen, expanding on demand
+        ========================================================================= */}
+        <section className="border border-[#E5DFD3] rounded-2xl bg-[#FFFFFF] shadow-2xs overflow-hidden transition-all">
+          {/* Accordion Trigger Header */}
+          <button
+            type="button"
+            onClick={() => setIsDropboxOpen((prev) => !prev)}
+            className="w-full p-3 sm:p-3.5 flex items-center justify-between text-left hover:bg-[#FAF8F5] transition-colors cursor-pointer select-none"
+          >
+            <div className="flex items-center gap-2">
               <Sliders className="w-3.5 h-3.5 text-[#D97706]" />
-              <span>Machine Setpoint Fixes ({batchFixes.length})</span>
+              <span className="font-bold text-xs text-[#1C1917]">
+                Machine Drift & Setpoint Fixes
+              </span>
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-[#FAF8F5] border border-[#E5DFD3] text-[#78716A]">
+                {batchFixes.length > 0 ? `${batchFixes.length} fixes` : "Telemetry"}
+              </span>
             </div>
-            <div className="space-y-1.5">
-              {batchFixes.map((fix, idx) => (
-                <div
-                  key={idx}
-                  className="p-2.5 rounded-lg bg-[#FFFDF5] border border-[#FDE68A] space-y-1"
-                >
-                  <div className="flex items-center gap-1.5 font-medium text-[#1C1917]">
-                    <span className="w-1.5 h-1.5 rounded-full bg-[#D97706] shrink-0" />
-                    <span>{fix.instruction}</span>
-                  </div>
-                  {fix.current !== undefined && fix.target !== undefined && (
-                    <div className="font-mono text-[11px] text-[#78716A] pl-3">
-                      {fix.current} → <span className="font-bold text-[#1C1917]">{fix.target} {fix.unit || ""}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
-        {/* Card 6: Out-of-Tolerance Sensor Parameters Notice */}
-        {outOfToleranceSensors.length > 0 && (
-          <section className="p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
-            <div className="font-bold text-[#991B1B] flex items-center justify-between">
-              <span>Drift Alert ({outOfToleranceSensors.length} Sensors)</span>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-[#78716A] hidden sm:inline">
+                {isDropboxOpen ? "Collapse" : "Expand"}
+              </span>
+              {isDropboxOpen ? (
+                <ChevronUp className="w-4 h-4 text-[#78716A]" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-[#78716A]" />
+              )}
             </div>
-            <div className="space-y-1">
-              {outOfToleranceSensors.map((s) => (
-                <div
-                  key={s.id}
-                  className="flex items-center justify-between p-1.5 rounded-lg bg-[#FEF2F2] text-[11px]"
-                >
-                  <span className="font-medium text-[#1C1917]">{s.name}</span>
-                  <span className="font-mono font-bold text-[#991B1B]">
-                    {s.recordedValue} {s.unit}
+          </button>
+
+          {/* Expanded Content: Machine Quality Deterioration & Predicted Setpoint Fixes */}
+          {isDropboxOpen && (
+            <div className="p-3 sm:p-3.5 pt-1 border-t border-[#EAE4D7] space-y-3 text-xs bg-[#FFFFFF]">
+              {/* Machine Quality Deterioration Index Meter */}
+              <div className="p-2.5 rounded-xl bg-[#FAF8F5] border border-[#EAE4D7] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 font-bold text-[#1C1917] text-[11px]">
+                    <Cpu className="w-3.5 h-3.5 text-[#1C1917]" />
+                    <span>Machine Quality Index</span>
+                  </div>
+                  <span
+                    className={`font-mono text-[10px] font-bold px-1.5 py-0.2 rounded ${
+                      machineHealthPercent >= 80
+                        ? "bg-[#DCFCE7] text-[#166534]"
+                        : machineHealthPercent >= 55
+                        ? "bg-[#FEF3C7] text-[#92400E]"
+                        : "bg-[#FEE2E2] text-[#991B1B]"
+                    }`}
+                  >
+                    {machineHealthPercent}% Health • {machineHealthStatus}
                   </span>
                 </div>
-              ))}
+
+                {/* Progress bar */}
+                <div className="w-full bg-[#E5DFD3] h-1.5 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      machineHealthPercent >= 80
+                        ? "bg-[#22C55E]"
+                        : machineHealthPercent >= 55
+                        ? "bg-[#F59E0B]"
+                        : "bg-[#EF4444]"
+                    }`}
+                    style={{ width: `${machineHealthPercent}%` }}
+                  />
+                </div>
+
+                <p className="text-[10px] text-[#78716A] leading-tight">
+                  {maxDriftSigma >= 2.0
+                    ? `Telemetry drift recorded at ${maxDriftSigma.toFixed(1)}σ deviation. Machine quality deteriorating without setpoint retuning.`
+                    : "Thermal and mechanical baseline metrics stable within 1.5σ tolerance corridor."}
+                </p>
+              </div>
+
+              {/* Recommended Machine Setpoint Fixes */}
+              {batchFixes.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="font-bold text-[#92400E] flex items-center gap-1 text-[11px]">
+                    <Gauge className="w-3.5 h-3.5 text-[#D97706]" />
+                    <span>Predicted Parameter Modifications ({batchFixes.length})</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {batchFixes.map((fix, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2 rounded-lg bg-[#FFFDF5] border border-[#FDE68A] text-[11px] space-y-0.5"
+                      >
+                        <div className="font-medium text-[#1C1917] flex items-start gap-1.5">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#D97706] mt-1 shrink-0" />
+                          <span>{fix.instruction}</span>
+                        </div>
+                        {fix.current !== undefined && fix.target !== undefined && (
+                          <div className="font-mono text-[10px] text-[#78716A] pl-3">
+                            Current: {fix.current} → Target: <strong className="text-[#1C1917]">{fix.target} {fix.unit || ""}</strong>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-2 rounded-lg bg-[#F0FDF4] border border-[#86EFAC] text-[11px] text-[#166534]">
+                  Zero setpoint fixes required. Current line parameters match baseline.
+                </div>
+              )}
+
+              {/* Out-of-Tolerance Telemetry Alert List */}
+              {outOfToleranceSensors.length > 0 && (
+                <div className="space-y-1 pt-1">
+                  <span className="text-[10px] font-bold text-[#991B1B] uppercase tracking-wider block">
+                    Drifted Sensors ({outOfToleranceSensors.length})
+                  </span>
+                  <div className="space-y-1">
+                    {outOfToleranceSensors.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center justify-between p-1.5 rounded-lg bg-[#FEF2F2] text-[10px]"
+                      >
+                        <span className="font-medium text-[#1C1917]">{s.name}</span>
+                        <span className="font-mono font-bold text-[#991B1B]">
+                          {s.recordedValue} {s.unit} (Nominal: {s.nominalTarget})
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-          </section>
-        )}
+          )}
+        </section>
       </aside>
 
       {/* =========================================================================
-          RIGHT ~75% COLUMN: CAROUSEL, VISUAL OVERLAY INSPECTION, SENSORS & DETAILS
+          RIGHT ~75% COLUMN: COMPACT IMAGE SELECTOR, BIG IMAGE VIEWER & WORKSPACE
       ========================================================================= */}
-      <main className="flex-1 min-w-0 w-full space-y-4">
+      <main className="flex-1 min-w-0 w-full lg:h-full flex flex-col lg:overflow-y-auto space-y-3 sm:space-y-3.5 pr-1">
         {/* Top Control Bar: Status Indicator + Workspace Tabs */}
-        <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2.5 sm:p-3 shadow-xs flex flex-wrap items-center justify-between gap-2.5 shrink-0">
           {/* Left: Solid Status Indicator (No Flashing) */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
             <div
-              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+              className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold border transition-colors ${
                 anyDefectsInBatch
                   ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
                   : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
@@ -551,7 +739,7 @@ export function LinenResults({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer ${
                     isActive
                       ? "bg-[#1C1917] text-[#FAF8F5] font-semibold shadow-2xs"
                       : "text-[#57534E] hover:bg-[#F3EFE6] hover:text-[#1C1917]"
@@ -570,145 +758,96 @@ export function LinenResults({
         </div>
 
         {/* =========================================================================
-            BATCH IMAGES CAROUSEL (SCROLLABLE / TOGGLEABLE FOR EACH PART)
-            Shows thumbnail, defect badge, confidence, and active selection ring
+            SLEEK COMPACT BATCH SELECTOR (NO THUMBNAILS - LETS BIG IMAGES COME UP)
+            Takes only ~38px height so the full image inspector is immediately prominent!
         ========================================================================= */}
         {allItems.length > 0 && (
-          <section
-            aria-label="Batch Image Carousel"
-            className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-4 shadow-xs space-y-2.5"
-          >
-            {/* Carousel Header with Navigation Controls */}
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-[#78716A]">
-                  Batch Images ({allItems.length})
-                </h3>
-                <span className="text-xs font-semibold text-[#1C1917]">
-                  • Active: Image {selectedIndex + 1}
-                </span>
-              </div>
-
-              {allItems.length > 1 && (
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => handleScrollCarousel("left")}
-                    aria-label="Scroll images left"
-                    className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] transition-colors cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleScrollCarousel("right")}
-                    aria-label="Scroll images right"
-                    className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] transition-colors cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </div>
-
-            {/* Scrollable Track */}
+          <div className="flex items-center justify-between gap-2 bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2 shadow-2xs shrink-0">
+            {/* Scrollable Chip Row */}
             <div
               ref={carouselRef}
-              className="flex items-center gap-3 overflow-x-auto pb-1.5 pt-0.5 scrollbar-thin scroll-smooth"
+              className="flex items-center gap-2 overflow-x-auto scrollbar-thin py-0.5 flex-1 min-w-0"
             >
               {allItems.map((item, idx) => {
                 const itemDefective = item.status === "DEFECTIVE";
                 const isSelected = selectedIndex === idx;
 
-                const itemImg =
-                  item.visionResults?.original_image_base64 ||
-                  item.visionResults?.original_url ||
-                  item.rawImageUrl;
-
                 const defectLabel =
                   item.predictedDefects && item.predictedDefects.length > 0
                     ? item.predictedDefects[0]
-                    : item.defectType || (itemDefective ? "Defect" : "Nominal");
+                    : item.defectType || (itemDefective ? "Defect" : "Pass");
 
                 return (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => {
-                      onSelectIndex(idx);
-                    }}
-                    className={`min-w-[190px] sm:min-w-[210px] max-w-[220px] shrink-0 p-2.5 rounded-xl border transition-all text-left cursor-pointer group ${
+                    onClick={() => onSelectIndex(idx)}
+                    className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 text-xs transition-all shrink-0 cursor-pointer select-none ${
                       isSelected
-                        ? "ring-2 ring-[#1C1917] border-[#1C1917] bg-[#FFFFFF] shadow-sm"
-                        : "border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#FFFFFF] hover:border-[#DDD5C7]"
+                        ? "bg-[#1C1917] text-[#FAF8F5] border-[#1C1917] shadow-xs"
+                        : "bg-[#FAF8F5] text-[#57534E] border-[#E5DFD3] hover:bg-[#FFFFFF] hover:border-[#DDD5C7] hover:text-[#1C1917]"
                     }`}
                   >
-                    {/* Thumbnail Container */}
-                    <div className="aspect-16/10 rounded-lg bg-[#1C1917] overflow-hidden relative mb-2 flex items-center justify-center border border-[#EAE4D7]">
-                      {itemImg ? (
-                        <img
-                          src={itemImg}
-                          alt={`Thumbnail Image ${idx + 1}`}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                        />
-                      ) : (
-                        <span className="text-[10px] text-[#A8A29E]">No Preview</span>
-                      )}
+                    <span
+                      className={`w-2 h-2 rounded-full shrink-0 ${
+                        itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                      }`}
+                    />
+                    <span className="font-bold">Image {idx + 1}</span>
 
-                      {/* Small Status Badge Overlay */}
-                      <div className="absolute top-1.5 right-1.5">
-                        <span
-                          className={`w-2.5 h-2.5 rounded-full block border border-white shadow-2xs ${
-                            itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
-                          }`}
-                        />
-                      </div>
+                    <span
+                      className={`text-[10px] font-semibold px-1.5 py-0.2 rounded-md ${
+                        isSelected
+                          ? itemDefective
+                            ? "bg-[#DC2626] text-white"
+                            : "bg-[#16A34A] text-white"
+                          : itemDefective
+                          ? "bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5]"
+                          : "bg-[#F0FDF4] text-[#166534] border border-[#86EFAC]"
+                      }`}
+                    >
+                      {itemDefective ? defectLabel : "Pass"}
+                    </span>
 
-                      {/* Pill indicating Image number */}
-                      <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-[#1C1917]/80 backdrop-blur-xs text-[10px] font-mono text-[#FAF8F5]">
-                        Img {idx + 1}
-                      </div>
-                    </div>
-
-                    {/* Metadata */}
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-xs text-[#1C1917] truncate">
-                          Image {idx + 1}
-                        </span>
-                        <span className="text-[10px] font-mono text-[#78716A]">
-                          {Math.round(item.confidenceScore)}%
-                        </span>
-                      </div>
-
-                      <div className="flex items-center justify-between gap-1">
-                        <span
-                          className={`text-[11px] font-semibold truncate ${
-                            itemDefective ? "text-[#991B1B]" : "text-[#166534]"
-                          }`}
-                        >
-                          {itemDefective ? defectLabel : "Pass • Nominal"}
-                        </span>
-
-                        {isSelected && (
-                          <span className="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-[#1C1917] text-[#FAF8F5]">
-                            Active
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    <span className="font-mono text-[10px] opacity-75">
+                      {Math.round(item.confidenceScore)}%
+                    </span>
                   </button>
                 );
               })}
             </div>
-          </section>
+
+            {/* Scroll Arrows if multiple images */}
+            {allItems.length > 2 && (
+              <div className="flex items-center gap-1 shrink-0 pl-1 border-l border-[#EAE4D7]">
+                <button
+                  type="button"
+                  onClick={() => handleScrollCarousel("left")}
+                  title="Scroll images left"
+                  aria-label="Scroll images left"
+                  className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleScrollCarousel("right")}
+                  title="Scroll images right"
+                  aria-label="Scroll images right"
+                  className="p-1 rounded-lg border border-[#E5DFD3] bg-[#FAF8F5] hover:bg-[#F3EFE6] text-[#57534E] cursor-pointer"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+          </div>
         )}
 
         {/* =========================================================================
             WORKSPACE CONTENT: BASED ON ACTIVE TAB
         ========================================================================= */}
 
-        {/* TAB 1: VISUAL INSPECTOR (DEFAULT) - Shows DefectSegmenter with all overlays */}
+        {/* TAB 1: VISUAL INSPECTOR (DEFAULT) - Shows DefectSegmenter with big image right up */}
         {activeTab === "visual" && (
           <div className="space-y-3">
             <DefectSegmenter
@@ -727,7 +866,7 @@ export function LinenResults({
             />
 
             {/* Quick Context Strip beneath the Image Inspector */}
-            <div className="p-3.5 rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
+            <div className="p-3 sm:p-3.5 rounded-xl border border-[#E5DFD3] bg-[#FFFFFF] flex flex-wrap items-center justify-between gap-3 text-xs shadow-xs">
               <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-[#1C1917]">

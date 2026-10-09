@@ -342,7 +342,7 @@ export default function QualityInspectionDashboard() {
         {/* Right Side: Inspection Report & JSON Output (Scrolls freely) */}
         <section
           aria-label="Inspection results and report"
-          className="flex-1 min-w-0 lg:h-full overflow-y-auto bg-[#FAF8F5]"
+          className="flex-1 min-w-0 lg:h-full overflow-y-auto lg:overflow-hidden bg-[#FAF8F5]"
         >
           <LinenResults
             activeItem={activeItem}
