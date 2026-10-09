@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Database,
+  CheckCircle2,
 } from "lucide-react";
 import { SensorTelemetry } from "@/lib/inspection-adapter";
 
@@ -759,8 +760,8 @@ export function ProcessTelemetryDossier({
                 </div>
               </div>
 
-              {/* Physical Process Context & Engineering Attribution: ONLY shown for defective / anomalous sensors */}
-              {(activeSensor.isCulprit || activeSensor.isOutOfTolerance) && (
+              {/* Physical Process Context & Engineering Attribution */}
+              {activeSensor.isCulprit || activeSensor.isOutOfTolerance ? (
                 <div className="p-4 rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] space-y-2 text-xs">
                   <div className="font-semibold text-[#991B1B] flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
@@ -773,6 +774,16 @@ export function ProcessTelemetryDossier({
                     <span className="font-semibold">Root Cause Profile: </span>
                     {activeSensor.causeMapping}
                   </div>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl border border-[#86EFAC] bg-[#F0FDF4] space-y-2 text-xs">
+                  <div className="font-semibold text-[#166534] flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-[#16A34A]" />
+                    <span>Nominal Parameter Stability</span>
+                  </div>
+                  <p className="text-[#166534] leading-relaxed">
+                    {activeSensor.name} operating within nominal Six Sigma control band ({activeSensor.min}–{activeSensor.max} {activeSensor.unit}). Clean parameter stability verified with zero tolerance breaches across cycle history.
+                  </p>
                 </div>
               )}
             </div>

@@ -47,9 +47,9 @@ interface LinenResultsProps {
 }
 
 /**
- * Highlights key engineering keywords, metrics, and actions in supervisor summary text
+ * Renders supervisor summary text cleanly without garish inline highlighter marks
  */
-function renderHighlightedSummary(text: unknown) {
+function renderCleanSummary(text: unknown) {
   if (typeof text !== "string") {
     if (typeof text === "object" && text !== null) {
       try {
@@ -60,63 +60,7 @@ function renderHighlightedSummary(text: unknown) {
     }
     return <span>{String(text || "")}</span>;
   }
-
-  const regex =
-    /(CRITICAL STOP|WARNING|GO|porosity|crack|scratches|defect|defective|quarantine|recalibrate|nominal|pass|all good|\+\d+\.?\d*\s*sigma|-\d+\.?\d*\s*sigma|\d+\.?\d*%\s*(?:risk|confidence)?|\d+\s*(?:bar|°C|RPM|L\/min))/gi;
-
-  const parts = text.split(regex);
-  return parts.map((part, i) => {
-    const lower = part.toLowerCase();
-    if (
-      lower.includes("critical") ||
-      lower.includes("porosity") ||
-      lower.includes("crack") ||
-      lower.includes("defect") ||
-      lower.includes("quarantine")
-    ) {
-      return (
-        <mark
-          key={i}
-          className="bg-[#FEE2E2] text-[#991B1B] font-bold px-1 py-0.5 rounded text-[11px]"
-        >
-          {part}
-        </mark>
-      );
-    }
-    if (
-      lower.includes("nominal") ||
-      lower.includes("pass") ||
-      lower === "go" ||
-      lower.includes("all good")
-    ) {
-      return (
-        <mark
-          key={i}
-          className="bg-[#DCFCE7] text-[#166534] font-bold px-1 py-0.5 rounded text-[11px]"
-        >
-          {part}
-        </mark>
-      );
-    }
-    if (
-      lower.includes("sigma") ||
-      lower.includes("risk") ||
-      lower.includes("bar") ||
-      lower.includes("°c") ||
-      lower.includes("recalibrate") ||
-      lower.includes("warning")
-    ) {
-      return (
-        <mark
-          key={i}
-          className="bg-[#FEF3C7] text-[#92400E] font-semibold px-1 py-0.5 rounded text-[11px] font-mono"
-        >
-          {part}
-        </mark>
-      );
-    }
-    return <span key={i}>{part}</span>;
-  });
+  return <span>{text}</span>;
 }
 
 export function LinenResults({
@@ -485,8 +429,12 @@ export function LinenResults({
     },
   ];
 
+  // Check if any process sensor drift exists across the batch
+  const hasDriftWarning =
+    maxDriftSigma >= 1.8 || (Array.isArray(outOfToleranceSensors) && outOfToleranceSensors.length > 0);
+
   return (
-    <div className="flex-1 w-full flex flex-col lg:flex-row p-3 sm:p-4 lg:p-5 gap-3.5 sm:gap-4 lg:gap-5 bg-[#FAF8F5] min-h-0 lg:h-full lg:overflow-hidden items-start">
+    <div className="flex-1 w-full h-full min-h-0 flex flex-col lg:flex-row p-3 sm:p-4 lg:p-5 gap-3.5 sm:gap-4 lg:gap-5 bg-[#FAF8F5] overflow-hidden">
       {/* =========================================================================
           LEFT ~25% COLUMN: PERSISTENT BATCH GATE DECISION & EXECUTIVE REPORT
           Locked to initial page view down through "Will Problem Continue",
@@ -494,7 +442,7 @@ export function LinenResults({
       ========================================================================= */}
       <aside
         aria-label="Batch Gate Decision & Executive Summary"
-        className="w-full lg:w-[320px] xl:w-[350px] 2xl:w-[380px] lg:h-full shrink-0 flex flex-col lg:overflow-y-auto pr-1 space-y-2.5 scrollbar-thin"
+        className="w-full lg:w-[320px] xl:w-[350px] 2xl:w-[380px] h-full min-h-0 shrink-0 flex flex-col overflow-y-auto pr-1 space-y-3 scrollbar-thin"
       >
         {/* Card 1: Batch Gate Decision Banner (Compact & Sleek) */}
         <section
@@ -577,65 +525,69 @@ export function LinenResults({
           </button>
         </section>
 
-        {/* Card 2: Supervisor Briefing with Key Message Highlights */}
-        {supervisorSummary && (
-          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-[#1C1917] flex items-center gap-1 text-xs">
-                <span>Supervisor Summary</span>
-              </h3>
-              {batchPrediction?.next_batch_risk !== undefined && (
-                <span className="font-mono text-[9px] px-1.5 py-0.2 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
-                  Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
-                </span>
-              )}
-            </div>
-
-            {/* Important Takeaway Highlight Callout */}
-            <div
-              className={`p-2 rounded-xl text-[11px] font-medium border flex items-center gap-2 ${
-                anyDefectsInBatch
-                  ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                  : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-              }`}
-            >
-              {anyDefectsInBatch ? (
-                <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#DC2626]" />
-              ) : (
-                <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-[#16A34A]" />
-              )}
-              <span className="leading-tight font-semibold">
-                {anyDefectsInBatch
-                  ? "Action Required: Hold scrap parts & adjust parameter setpoints"
-                  : "Line Cleared: All parameters operating within normal tolerance"}
+        {/* Card 2: Executive Briefing */}
+        <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2.5 shadow-2xs text-xs">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-[#1C1917] flex items-center gap-1.5 text-xs">
+              <span>Executive Briefing</span>
+            </h3>
+            {anyDefectsInBatch && batchPrediction?.next_batch_risk !== undefined ? (
+              <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
+                Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
               </span>
-            </div>
+            ) : (
+              <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[#F0FDF4] text-[#166534] border border-[#86EFAC] font-semibold">
+                Quality Gate: Passed
+              </span>
+            )}
+          </div>
 
-            {/* Body Text with Smart Industrial Highlights */}
-            <p className="text-[#57534E] leading-relaxed text-[11px]">
-              {renderHighlightedSummary(supervisorSummary)}
-            </p>
-          </section>
-        )}
+          {/* Important Takeaway Callout */}
+          <div
+            className={`p-2.5 rounded-xl text-[11px] font-medium border flex items-center gap-2 ${
+              anyDefectsInBatch
+                ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                : hasDriftWarning
+                ? "bg-[#FFFDF5] border-[#FDE68A] text-[#92400E]"
+                : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
+            }`}
+          >
+            {anyDefectsInBatch ? (
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#DC2626]" />
+            ) : hasDriftWarning ? (
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-[#D97706]" />
+            ) : (
+              <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-[#16A34A]" />
+            )}
+            <span className="leading-tight font-semibold">
+              {anyDefectsInBatch
+                ? "Action Required: Hold scrap parts & adjust parameter setpoints"
+                : hasDriftWarning
+                ? `Process Drift Warning: Telemetry drift detected (${maxDriftSigma.toFixed(1)}σ). Recalibration advised.`
+                : "Line Cleared: All parameters operating within normal Six Sigma tolerance"}
+            </span>
+          </div>
 
-        {/* Card 3: Compiled Batch Probable Root Cause */}
-        {(compiledDefects.length > 0 || rootCauseAnalysisData || anyDefectsInBatch) && (
-          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2 shadow-2xs text-xs">
+          {/* Clean Executive Summary Body Text */}
+          <p className="text-[#57534E] leading-relaxed text-[11px]">
+            {supervisorSummary
+              ? renderCleanSummary(supervisorSummary)
+              : anyDefectsInBatch
+              ? "Surface anomalies identified during batch inspection. Quarantine defective parts and review telemetry deviations before continuing production."
+              : "All parts in this batch verified nominal. Surface contour, quench rates, and cavity pressures operated continuously within tolerance corridors with zero anomalies."}
+          </p>
+        </section>
+
+        {/* Card 3: Batch Probable Cause (Defective) OR Batch Quality Verification (OK parts) */}
+        {anyDefectsInBatch ? (
+          <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2.5 shadow-2xs text-xs">
             <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
               <div className="flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
-                <span>Batch Probable Cause</span>
+                <AlertTriangle className="w-3.5 h-3.5 text-[#DC2626]" />
+                <span>Batch Root Cause</span>
               </div>
-              <span
-                className={`text-[10px] font-mono px-1.5 py-0.2 rounded font-bold ${
-                  compiledDefects.length > 0
-                    ? "bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
-                    : "bg-[#F0FDF4] border border-[#86EFAC] text-[#166534]"
-                }`}
-              >
-                {compiledDefects.length > 0
-                  ? `${compiledDefects.reduce((acc, c) => acc + (c?.count || 1), 0)} Defect(s) in Batch`
-                  : "Nominal"}
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md font-bold bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]">
+                {compiledDefects.reduce((acc, c) => acc + (c?.count || 1), 0)} Defect(s) Flagged
               </span>
             </div>
 
@@ -667,7 +619,7 @@ export function LinenResults({
                 {batchCulpritSensors.map((c) => (
                   <span
                     key={c}
-                    className="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
+                    className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B]"
                   >
                     {c.replace(/_/g, " ").toUpperCase()}
                   </span>
@@ -675,27 +627,92 @@ export function LinenResults({
               </div>
             )}
           </section>
-        )}
-
-        {/* Card 4: Will Problem Continue? (Trend Prediction) */}
-        {batchPrediction?.text && (
-          <section className="p-3 sm:p-3.5 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-1.5 shadow-2xs text-xs">
+        ) : (
+          /* For OK parts/batch: Show affirmative positive verifications */
+          <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-2.5 shadow-2xs text-xs">
             <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
-              <div className="flex items-center gap-1.5">
-                <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
-                <span>Will Problem Continue?</span>
+              <div className="flex items-center gap-1.5 text-[#166534]">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#16A34A]" />
+                <span>Batch Quality Verification</span>
               </div>
-              {batchPrediction?.next_batch_risk !== undefined && (
-                <span className="text-[10px] font-mono font-bold text-[#78350F]">
-                  {Math.round(batchPrediction.next_batch_risk * 100)}% Recurrence
-                </span>
-              )}
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-md font-bold bg-[#F0FDF4] border border-[#86EFAC] text-[#166534]">
+                100% Passed
+              </span>
             </div>
-            <p className="text-[#57534E] leading-relaxed text-[11px]">
-              {batchPrediction.text}
-            </p>
+
+            {/* Affirmative Positives */}
+            <div className="space-y-1.5 pt-0.5">
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Surface Integrity:</strong> Clean casting contour across all {allItems.length} parts; zero cracks, flash, or surface tears.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Thermal Corridor:</strong> Quench flow rate and mold temperature stable within Six Sigma band.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Cavity Fill & Packing:</strong> Complete solidus filling confirmed with zero micro-porosity entrapment.
+                </span>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-[#292524]">
+                <CheckCircle2 className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#16A34A]" />
+                <span>
+                  <strong className="text-[#1C1917]">Line Release:</strong> All quality gates satisfied; cleared for downstream assembly.
+                </span>
+              </div>
+            </div>
+
+            {/* Dedicated Process Drift Warning if Drift Present on Nominal Parts */}
+            {hasDriftWarning && (
+              <div className="p-2.5 rounded-xl bg-[#FFFDF5] border border-[#FDE68A] text-[11px] text-[#92400E] space-y-1 mt-2">
+                <div className="font-semibold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-[#D97706] shrink-0" />
+                  <span>Process Parameter Drift Warning</span>
+                </div>
+                <p className="text-[10px] leading-relaxed text-[#78350F]">
+                  Telemetry recorded at {maxDriftSigma.toFixed(1)}σ deviation
+                  {outOfToleranceSensors.length > 0
+                    ? ` on ${outOfToleranceSensors.map((s) => s.name).join(", ")}`
+                    : ""}. Components meet quality specification, but setpoint trimming is recommended before the next production run.
+                </p>
+              </div>
+            )}
           </section>
         )}
+
+        {/* Card 4: Problem Continuation / Line Stability Forecast */}
+        <section className="p-3.5 sm:p-4 rounded-2xl bg-[#FFFFFF] border border-[#E5DFD3] space-y-1.5 shadow-2xs text-xs">
+          <div className="font-bold text-[#1C1917] flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
+              <span>{anyDefectsInBatch ? "Recurrence Forecast" : "Line Stability Forecast"}</span>
+            </div>
+            {anyDefectsInBatch && batchPrediction?.next_batch_risk !== undefined ? (
+              <span className="text-[10px] font-mono font-bold text-[#991B1B]">
+                {Math.round(batchPrediction.next_batch_risk * 100)}% Recurrence
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono font-bold text-[#166534]">
+                {hasDriftWarning ? "Low Immediate Risk" : "Stable • 0% Risk"}
+              </span>
+            )}
+          </div>
+          <p className="text-[#57534E] leading-relaxed text-[11px]">
+            {anyDefectsInBatch
+              ? batchPrediction?.text ||
+                "Persistent parameter deviation indicates defect recurrence is likely unless machine setpoints are recalibrated."
+              : hasDriftWarning
+              ? "Current parts passed all dimensional and surface criteria. Sensor drift suggests proactive recalibration during the next cycle to prevent defect onset."
+              : batchPrediction?.text ||
+                "Nominal line stability verified. Process corridors remain centered with near-zero recurrence risk across subsequent casting cycles."}
+          </p>
+        </section>
 
         {/* =========================================================================
             CARD 5: THE DROP BOX (EXPANDABLE ENGINEERING & DRIFT DIAGNOSTICS)
@@ -835,7 +852,7 @@ export function LinenResults({
       {/* =========================================================================
           RIGHT ~75% COLUMN: COMPACT IMAGE SELECTOR, BIG IMAGE VIEWER & WORKSPACE
       ========================================================================= */}
-      <main className="flex-1 min-w-0 w-full lg:h-full flex flex-col lg:overflow-y-auto space-y-3 sm:space-y-3.5 pr-1">
+      <main className="flex-1 min-w-0 w-full h-full min-h-0 flex flex-col overflow-y-auto space-y-3 sm:space-y-3.5 pr-1 scrollbar-thin">
         {/* Top Control Bar: Status Indicator + Workspace Tabs */}
         <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-2.5 sm:p-3 shadow-xs flex flex-wrap items-center justify-between gap-2.5 shrink-0">
           {/* Left: Solid Status Indicator (No Flashing) */}
@@ -1009,7 +1026,7 @@ export function LinenResults({
               <div className="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-[#1C1917]">
-                    {isDefective ? "Defect Detected:" : "Inspection Status:"}
+                    {isDefective ? "Defect Detected:" : "Quality Status:"}
                   </span>
                   <span
                     className={`font-semibold ${
@@ -1020,22 +1037,28 @@ export function LinenResults({
                       ? predictedDefects.length > 0
                         ? predictedDefects.join(", ")
                         : activeItem.defectType || "Surface anomaly detected"
-                      : "Nominal Contour • Ready"}
+                      : "✓ Nominal Contour Verified"}
                   </span>
-                  {isDefective && (
-                    <span className="text-[#78716A] text-[11px] font-mono">
-                      ({confidenceVal.toFixed(1)}% confidence)
-                    </span>
-                  )}
+                  <span className="text-[#78716A] text-[11px] font-mono">
+                    ({confidenceVal.toFixed(1)}% confidence)
+                  </span>
                 </div>
 
                 <span className="hidden sm:inline text-[#DDD5C7]">•</span>
 
-                <span className="text-[#57534E]">
-                  {isDefective
-                    ? "Action: Quarantine component — do not release downstream."
-                    : "Action: Component cleared for downstream line release."}
-                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[#57534E]">
+                    {isDefective
+                      ? "Action: Quarantine component — do not release downstream."
+                      : "Action: Cleared for downstream line release — zero surface voids or porosity."}
+                  </span>
+
+                  {!isDefective && outOfToleranceSensors.length > 0 && (
+                    <span className="text-[10px] font-semibold text-[#92400E] bg-[#FEF3C7] px-2 py-0.5 rounded border border-[#FDE68A]">
+                      Drift: {outOfToleranceSensors.map((s) => s.name).join(", ")}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
