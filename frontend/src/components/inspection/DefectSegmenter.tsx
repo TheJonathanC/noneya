@@ -88,6 +88,91 @@ function createSyntheticHeatmapUri(defectType: string = "Defect", isCritical: bo
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 }
 
+interface SegmentLayout {
+  side: "left" | "right";
+  edgePoint: { x: number; y: number };
+  anchorPoint: { x: number; y: number };
+  leftPercent: number;
+  topPercent: number;
+}
+
+/**
+ * Calculates label badge position offset to the side of the segment
+ * so it never covers the underlying defect or features.
+ */
+function getSegmentLayout(inst: SegmentationInstance): SegmentLayout {
+  let minX = 800;
+  let maxX = 0;
+  let minY = 600;
+  let maxY = 0;
+  let hasValidPoints = false;
+
+  if (inst.points && typeof inst.points === "string") {
+    const rawPairs = inst.points.trim().split(/\s+/);
+    for (const pair of rawPairs) {
+      const parts = pair.split(",");
+      const px = parseFloat(parts[0]);
+      const py = parseFloat(parts[1]);
+      if (!isNaN(px) && !isNaN(py)) {
+        hasValidPoints = true;
+        if (px < minX) minX = px;
+        if (px > maxX) maxX = px;
+        if (py < minY) minY = py;
+        if (py > maxY) maxY = py;
+      }
+    }
+  }
+
+  // Handle normalized 0..1 coordinates if encountered
+  if (hasValidPoints && maxX <= 1.0 && maxY <= 1.0) {
+    minX *= 800;
+    maxX *= 800;
+    minY *= 600;
+    maxY *= 600;
+  }
+
+  // Fallback to center percentage if points are missing or unparseable
+  if (!hasValidPoints) {
+    const cx = (inst.center?.x ?? 50) * 8; // 0..100% -> 0..800
+    const cy = (inst.center?.y ?? 50) * 6; // 0..100% -> 0..600
+    minX = Math.max(20, cx - 40);
+    maxX = Math.min(780, cx + 40);
+    minY = Math.max(20, cy - 30);
+    maxY = Math.min(580, cy + 30);
+  }
+
+  const cy = (minY + maxY) / 2;
+
+  // If segment's right edge allows room for offset + badge, place on the right.
+  // Otherwise place on the left of the segment.
+  const placeOnRight = maxX <= 560;
+
+  let side: "left" | "right";
+  let edgePointX: number;
+  let badgeAnchorX: number;
+
+  if (placeOnRight) {
+    side = "right";
+    edgePointX = maxX;
+    badgeAnchorX = maxX + 26; // Clean offset outside the segment perimeter
+  } else {
+    side = "left";
+    edgePointX = minX;
+    badgeAnchorX = minX - 26; // Clean offset outside the segment perimeter
+  }
+
+  const clampedAnchorX = Math.max(side === "left" ? 140 : 20, Math.min(760, badgeAnchorX));
+  const clampedAnchorY = Math.max(30, Math.min(570, cy));
+
+  return {
+    side,
+    edgePoint: { x: edgePointX, y: cy },
+    anchorPoint: { x: clampedAnchorX, y: clampedAnchorY },
+    leftPercent: (clampedAnchorX / 800) * 100,
+    topPercent: (clampedAnchorY / 600) * 100,
+  };
+}
+
 export function DefectSegmenter({
   originalImage,
   heatmapImage,
@@ -466,31 +551,69 @@ export function DefectSegmenter({
                               />
                             );
                           })}
+
+                          {/* Leader lines in split view */}
+                          {showBadges && (
+                            <g className="pointer-events-none">
+                              {instances.map((inst) => {
+                                const layout = getSegmentLayout(inst);
+                                const isHovered =
+                                  hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                                return (
+                                  <g key={`split-leader-${inst.id}`}>
+                                    <circle
+                                      cx={layout.edgePoint.x}
+                                      cy={layout.edgePoint.y}
+                                      r={isHovered ? 3 : 2}
+                                      fill={inst.borderColor || "#FFFFFF"}
+                                      stroke="#1C1917"
+                                      strokeWidth="1"
+                                    />
+                                    <line
+                                      x1={layout.edgePoint.x}
+                                      y1={layout.edgePoint.y}
+                                      x2={layout.anchorPoint.x}
+                                      y2={layout.anchorPoint.y}
+                                      stroke={isHovered ? "#FFFFFF" : inst.borderColor || "#FFFFFF"}
+                                      strokeWidth={isHovered ? 1.5 : 1}
+                                      strokeDasharray={isHovered ? "none" : "2,2"}
+                                      strokeOpacity={0.8}
+                                    />
+                                  </g>
+                                );
+                              })}
+                            </g>
+                          )}
                         </svg>
                       )}
                       {showMask && showBadges && (
                         <div className="absolute inset-0 pointer-events-none z-20">
-                          {instances.map((inst) => (
-                            <div
-                              key={`split-badge-${inst.id}`}
-                              style={{
-                                left: `${inst.center.x}%`,
-                                top: `${inst.center.y}%`,
-                              }}
-                              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto"
-                            >
+                          {instances.map((inst) => {
+                            const layout = getSegmentLayout(inst);
+                            return (
                               <div
+                                key={`split-badge-${inst.id}`}
                                 style={{
-                                  backgroundColor: inst.badgeBg,
-                                  color: inst.badgeTextColor || "#FFFFFF",
+                                  left: `${layout.leftPercent}%`,
+                                  top: `${layout.topPercent}%`,
                                 }}
-                                className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-lg flex items-center gap-1 border border-white/60"
+                                className={`absolute -translate-y-1/2 ${
+                                  layout.side === "left" ? "-translate-x-full" : "translate-x-0"
+                                } pointer-events-auto`}
                               >
-                                <span className="w-1.5 h-1.5 rounded-full bg-white" />
-                                <span>{inst.className}</span>
+                                <div
+                                  style={{
+                                    backgroundColor: inst.badgeBg,
+                                    color: inst.badgeTextColor || "#FFFFFF",
+                                  }}
+                                  className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold shadow-lg flex items-center gap-1 border border-white/60"
+                                >
+                                  <span className="w-1.5 h-1.5 rounded-full bg-white" />
+                                  <span>{inst.className}</span>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       )}
                       <div className="absolute top-2 left-2 px-2.5 py-1 rounded-md bg-[#991B1B]/90 border border-[#DC2626] text-[10px] font-mono text-[#FAF8F5] shadow-md">
@@ -642,25 +765,61 @@ export function DefectSegmenter({
                           />
                         );
                       })}
+
+                      {/* Leader connector lines and perimeter anchor dots to the side badges */}
+                      {showBadges && (
+                        <g className="pointer-events-none">
+                          {instances.map((inst) => {
+                            const layout = getSegmentLayout(inst);
+                            const isHovered =
+                              hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
+                            return (
+                              <g key={`leader-${inst.id}`}>
+                                <circle
+                                  cx={layout.edgePoint.x}
+                                  cy={layout.edgePoint.y}
+                                  r={isHovered ? 3.5 : 2.5}
+                                  fill={inst.borderColor || "#FFFFFF"}
+                                  stroke="#1C1917"
+                                  strokeWidth="1"
+                                />
+                                <line
+                                  x1={layout.edgePoint.x}
+                                  y1={layout.edgePoint.y}
+                                  x2={layout.anchorPoint.x}
+                                  y2={layout.anchorPoint.y}
+                                  stroke={isHovered ? "#FFFFFF" : inst.borderColor || "#FFFFFF"}
+                                  strokeWidth={isHovered ? 1.6 : 1.2}
+                                  strokeDasharray={isHovered ? "none" : "3,3"}
+                                  strokeOpacity={isHovered ? 1 : 0.8}
+                                />
+                              </g>
+                            );
+                          })}
+                        </g>
+                      )}
                     </svg>
                   )}
 
-                  {/* Layer 4: Floating Perception Badges / Pills */}
+                  {/* Layer 4: Floating Perception Badges / Pills (Positioned to the side of segments) */}
                   {(viewMode === "perception" || viewMode === "combined") &&
                     showMask &&
                     showBadges && (
                       <div className="absolute inset-0 pointer-events-none z-20">
                         {instances.map((inst) => {
+                          const layout = getSegmentLayout(inst);
                           const isHovered =
                             hoveredInstanceId === inst.id || selectedInstanceId === inst.id;
                           return (
                             <div
                               key={`badge-${inst.id}`}
                               style={{
-                                left: `${inst.center.x}%`,
-                                top: `${inst.center.y}%`,
+                                left: `${layout.leftPercent}%`,
+                                top: `${layout.topPercent}%`,
                               }}
-                              className="absolute -translate-x-1/2 -translate-y-1/2 pointer-events-auto cursor-pointer"
+                              className={`absolute -translate-y-1/2 ${
+                                layout.side === "left" ? "-translate-x-full" : "translate-x-0"
+                              } pointer-events-auto cursor-pointer`}
                               onMouseEnter={() => setHoveredInstanceId(inst.id)}
                               onMouseLeave={() => setHoveredInstanceId(null)}
                               onClick={() =>
