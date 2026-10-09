@@ -49,7 +49,18 @@ interface LinenResultsProps {
 /**
  * Highlights key engineering keywords, metrics, and actions in supervisor summary text
  */
-function renderHighlightedSummary(text: string) {
+function renderHighlightedSummary(text: unknown) {
+  if (typeof text !== "string") {
+    if (typeof text === "object" && text !== null) {
+      try {
+        return <span>{JSON.stringify(text)}</span>;
+      } catch {
+        return <span>Summary available</span>;
+      }
+    }
+    return <span>{String(text || "")}</span>;
+  }
+
   const regex =
     /(CRITICAL STOP|WARNING|GO|porosity|crack|scratches|defect|defective|quarantine|recalibrate|nominal|pass|all good|\+\d+\.?\d*\s*sigma|-\d+\.?\d*\s*sigma|\d+\.?\d*%\s*(?:risk|confidence)?|\d+\s*(?:bar|°C|RPM|L\/min))/gi;
 
@@ -327,56 +338,66 @@ export function LinenResults({
   // Out of tolerance sensors
   const outOfToleranceSensors = (activeItem.telemetry || []).filter((t) => t.isOutOfTolerance);
 
-  // Compile all defects across the whole batch
+  // Compile all defects across the whole batch safely
   const compiledDefects = useMemo(() => {
     const tally: Record<string, { count: number; imageIndices: number[]; parts: string[] }> = {};
+    if (!Array.isArray(allItems)) return [];
+
     allItems.forEach((item, idx) => {
-      if (item.status === "DEFECTIVE") {
+      if (item && item.status === "DEFECTIVE") {
         const defects =
-          item.predictedDefects && item.predictedDefects.length > 0
+          item.predictedDefects && Array.isArray(item.predictedDefects) && item.predictedDefects.length > 0
             ? item.predictedDefects
             : [item.defectType || "Defect"];
+
         defects.forEach((d) => {
-          const key = d.toLowerCase().trim();
+          if (!d) return;
+          const str = typeof d === "string" ? d : String(d);
+          const key = str.toLowerCase().trim();
           if (!tally[key]) {
             tally[key] = { count: 0, imageIndices: [], parts: [] };
           }
           tally[key].count += 1;
           tally[key].imageIndices.push(idx + 1);
-          tally[key].parts.push(item.partId);
+          if (item.partId) tally[key].parts.push(item.partId);
         });
       }
     });
+
     return Object.entries(tally).map(([name, data]) => ({
       name: name.charAt(0).toUpperCase() + name.slice(1),
       count: data.count,
-      images: data.imageIndices,
-      parts: data.parts,
+      images: data.imageIndices || [],
+      parts: data.parts || [],
     }));
   }, [allItems]);
 
   // Unified culprit sensors across the whole batch
   const batchCulpritSensors = useMemo(() => {
     const culprits = new Set<string>();
-    if (rootCauseAnalysisData?.primary_culprit_sensor) {
-      culprits.add(String(rootCauseAnalysisData.primary_culprit_sensor).toLowerCase());
+    if (typeof rootCauseAnalysisData?.primary_culprit_sensor === "string") {
+      culprits.add(rootCauseAnalysisData.primary_culprit_sensor.toLowerCase());
     }
-    batchFixes.forEach((f) => {
-      if (f.sensor) culprits.add(f.sensor.toLowerCase());
-    });
-    outOfToleranceSensors.forEach((s) => {
-      if (s.name) culprits.add(s.name.toLowerCase().replace(/\s+/g, "_"));
-    });
+    if (Array.isArray(batchFixes)) {
+      batchFixes.forEach((f) => {
+        if (typeof f?.sensor === "string") culprits.add(f.sensor.toLowerCase());
+      });
+    }
+    if (Array.isArray(outOfToleranceSensors)) {
+      outOfToleranceSensors.forEach((s) => {
+        if (typeof s?.name === "string") culprits.add(s.name.toLowerCase().replace(/\s+/g, "_"));
+      });
+    }
     return Array.from(culprits);
   }, [rootCauseAnalysisData, batchFixes, outOfToleranceSensors]);
 
   // General batch-wide probable cause synthesis based on compiled defects
   const generalProbableCause = useMemo(() => {
-    if (compiledDefects.length === 0) {
+    if (!compiledDefects || compiledDefects.length === 0) {
       return "Batch verified nominal: Process parameters and thermal corridors stable across all parts with zero defect signatures.";
     }
 
-    const defectNames = compiledDefects.map((d) => d.name.toLowerCase());
+    const defectNames = compiledDefects.map((d) => (d.name || "").toLowerCase());
     const hasPorosity = defectNames.some((d) => d.includes("poros"));
     const hasCrack = defectNames.some((d) => d.includes("crack") || d.includes("tear"));
     const hasFlash = defectNames.some((d) => d.includes("flash"));
@@ -396,10 +417,12 @@ export function LinenResults({
       return "Hydraulic pressure intensification surge: Die pack pressure exceeded clamp tonnage limits during the filling stroke, resulting in mold parting line flash and concurrent turbulent porosity voiding.";
     }
     if (hasPorosity) {
-      return `Hydraulic ram pack pressure fluctuation across ${compiledDefects[0].count} part(s). Fluctuating cavity intensification pressure during solidus phase transition prevented complete feeding, entrapping micro-gas porosity.`;
+      const porosityCount = compiledDefects.find((d) => (d.name || "").toLowerCase().includes("poros"))?.count ?? (compiledDefects[0]?.count ?? 1);
+      return `Hydraulic ram pack pressure fluctuation across ${porosityCount} part(s). Fluctuating cavity intensification pressure during solidus phase transition prevented complete feeding, entrapping micro-gas porosity.`;
     }
     if (hasCrack) {
-      return `Thermal cooling gradient imbalance across ${compiledDefects[0].count} part(s). Non-uniform quench rate through cooling channels generated differential shrinkage stresses exceeding the alloy yield limit.`;
+      const crackCount = compiledDefects.find((d) => (d.name || "").toLowerCase().includes("crack"))?.count ?? (compiledDefects[0]?.count ?? 1);
+      return `Thermal cooling gradient imbalance across ${crackCount} part(s). Non-uniform quench rate through cooling channels generated differential shrinkage stresses exceeding the alloy yield limit.`;
     }
     if (backendExplanation) {
       return backendExplanation;
@@ -412,12 +435,13 @@ export function LinenResults({
   // Machine Quality Deterioration & Value Drift Calculation
   const maxDriftSigma = useMemo(() => {
     if (batchAnalysis?.stats && typeof batchAnalysis.stats === "object" && "max_drift_sigma" in batchAnalysis.stats) {
-      return Number((batchAnalysis.stats as { max_drift_sigma: number }).max_drift_sigma);
+      const val = Number((batchAnalysis.stats as { max_drift_sigma: unknown }).max_drift_sigma);
+      if (!isNaN(val)) return val;
     }
-    if (outOfToleranceSensors.length > 0) return 3.4;
+    if (Array.isArray(outOfToleranceSensors) && outOfToleranceSensors.length > 0) return 3.4;
     if (anyDefectsInBatch) return 2.2;
     return 0.4;
-  }, [batchAnalysis, outOfToleranceSensors.length, anyDefectsInBatch]);
+  }, [batchAnalysis, outOfToleranceSensors, anyDefectsInBatch]);
 
   // Deterioration Score: 100% is pristine, lower means machine wear / calibration drift
   const machineHealthPercent = Math.max(25, Math.min(100, Math.round(100 - maxDriftSigma * 16)));
@@ -610,7 +634,7 @@ export function LinenResults({
                 }`}
               >
                 {compiledDefects.length > 0
-                  ? `${compiledDefects.reduce((acc, c) => acc + c.count, 0)} Defect(s) in Batch`
+                  ? `${compiledDefects.reduce((acc, c) => acc + (c?.count || 1), 0)} Defect(s) in Batch`
                   : "Nominal"}
               </span>
             </div>
@@ -623,7 +647,7 @@ export function LinenResults({
                     key={d.name}
                     className="px-2 py-0.5 rounded-md bg-[#FEF2F2] border border-[#FCA5A5] text-[#991B1B] text-[10px] font-bold"
                   >
-                    {d.name} ({d.count}x • Img {d.images.join(", ")})
+                    {d.name} ({d.count}x • Img {Array.isArray(d.images) ? d.images.join(", ") : ""})
                   </span>
                 ))}
               </div>

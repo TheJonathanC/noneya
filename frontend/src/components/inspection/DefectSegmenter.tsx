@@ -48,7 +48,8 @@ export interface DefectSegmenterProps {
 /**
  * Procedural fallback thermal heatmap SVG generator if no image mask is provided
  */
-function createSyntheticHeatmapUri(defectType: string, isCritical: boolean): string {
+function createSyntheticHeatmapUri(defectType: string = "Defect", isCritical: boolean = false): string {
+  const safeDefectType = typeof defectType === "string" && defectType.trim().length > 0 ? defectType : "Defect";
   const cx = 416;
   const cy = 288;
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 600" width="800" height="600">
@@ -77,7 +78,7 @@ function createSyntheticHeatmapUri(defectType: string, isCritical: boolean): str
            <line x1="${cx}" y1="${cy - 45}" x2="${cx}" y2="${cy + 45}" stroke="#FFFFFF" stroke-width="1.8" stroke-dasharray="3,3"/>
            <circle cx="${cx}" cy="${cy}" r="26" fill="none" stroke="#FFFFFF" stroke-width="1.6"/>
            <rect x="${cx + 36}" y="${cy - 45}" width="165" height="44" rx="4" fill="#0F131D" fill-opacity="0.92" stroke="#FF003C" stroke-width="1.2"/>
-           <text x="${cx + 46}" y="${cy - 28}" fill="#FF4060" font-family="monospace" font-size="11" font-weight="bold">GRAD-CAM: ${defectType.toUpperCase()}</text>
+           <text x="${cx + 46}" y="${cy - 28}" fill="#FF4060" font-family="monospace" font-size="11" font-weight="bold">GRAD-CAM: ${safeDefectType.toUpperCase()}</text>
            <text x="${cx + 46}" y="${cy - 12}" fill="#94A3B8" font-family="monospace" font-size="10">PEAK Z: 4.85 • CRITICAL</text>`
         : `<circle cx="400" cy="300" r="240" fill="url(#nominal)"/>
            <rect x="330" y="275" width="140" height="34" rx="4" fill="#0D1518" fill-opacity="0.9" stroke="#00E676" stroke-width="1"/>
