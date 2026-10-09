@@ -486,3 +486,12 @@ Executes Model 1 -> Grad-CAM bounding isolation -> masked image generation -> Mo
 | **Test** | `POST` | `/test/classify-batch` | Standalone Model 1 batch concurrency test |
 | **Test** | `POST` | `/test-model2` | Standalone Model 2 multi-label ResNet-18 test |
 | **Test** | `POST` | `/test-integrated-pipeline` | Standalone Model 1 + Grad-CAM + Model 2 chained test |
+
+---
+
+## Dataset & Acknowledgments
+
+* **Benchmark Dataset**: [Real Life Industrial Dataset of Casting Product](https://www.kaggle.com/datasets/ravirajsinh45/real-life-industrial-dataset-of-casting-product) on Kaggle.
+* **Creator / Author**: [Ravirajsinh Dabhi](https://www.kaggle.com/ravirajsinh45)
+* **Usage**: Used for training and benchmarking the top-view submersible pump impeller casting vision models (`clf.pt`, `model2_multilabel.pt`).
+

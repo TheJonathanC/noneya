@@ -95,3 +95,14 @@ Requirements: Node.js 20+
 - `POST /api/batch/evaluate`: Runs batch analysis across five impeller images and returns the gatekeeper verdict.
 - `GET /api/telemetry/recent`: Returns recent sensor readings and classified defects directly from MongoDB Atlas.
 - `GET /api/camera-status`: Checks connectivity for live camera hardware.
+
+## Dataset & Acknowledgments
+
+The visual defect classification models in Qastra are trained and evaluated using the **Real Life Industrial Dataset of Casting Product** available on Kaggle:
+
+* **Dataset**: [Real Life Industrial Dataset of Casting Product](https://www.kaggle.com/datasets/ravirajsinh45/real-life-industrial-dataset-of-casting-product)
+* **Author**: [Ravirajsinh Dabhi](https://www.kaggle.com/ravirajsinh45)
+* **Description**: Industrial top-view image dataset of submersible pump impeller castings manufactured via foundry die/sand casting, containing labelled high-resolution images of nominal (`ok_front`) and defective (`def_front`) casting components under stable shop-floor inspection lighting.
+
+We gratefully acknowledge and credit **Ravirajsinh Dabhi** for making this authentic manufacturing quality dataset accessible to the machine learning and computer vision community.
+
