@@ -717,18 +717,6 @@ export function DefectSegmenter({
                   <span className="text-white capitalize">{activeInstance.category}</span>
                 </div>
                 <div>
-                  <span className="text-[#A8A29E] block text-[10px]">Area</span>
-                  <span className="text-white">
-                    {activeInstance.areaMm2 ? `${activeInstance.areaMm2} mm²` : "Localized"}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-[#A8A29E] block text-[10px]">Center Coords</span>
-                  <span className="text-white">
-                    X:{activeInstance.center.x}% Y:{activeInstance.center.y}%
-                  </span>
-                </div>
-                <div>
                   <span className="text-[#A8A29E] block text-[10px]">Severity</span>
                   <span
                     className={`font-semibold ${
