@@ -29,10 +29,11 @@ export async function GET(request: NextRequest) {
   const limit = searchParams.get("limit") || "30";
 
   const candidateUrls = [
+    REMOTE_BACKEND_BASE,
     DEFAULT_BACKEND_BASE,
+    "http://82.112.231.102",
     "http://127.0.0.1:8000",
     "http://localhost:8000",
-    REMOTE_BACKEND_BASE,
   ];
 
   const uniqueUrls = Array.from(new Set(candidateUrls.filter(Boolean)));

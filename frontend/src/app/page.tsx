@@ -38,8 +38,8 @@ const STAGES = [
     step: "04",
     icon: FileText,
     title: "LLM Layer & Reporting",
-    tech: "Gemini 1.5 Flash (2-Step Flow)",
-    body: "Gemini 1.5 Flash first structures raw XGBoost diagnostic signals into clean JSON, followed by a final Gemini call synthesizing the authoritative 3-sentence incident report.",
+    tech: "Gemini (2-Step Flow)",
+    body: "Gemini first structures raw XGBoost diagnostic signals into clean JSON, followed by a final Gemini call synthesizing the authoritative 3-sentence incident report.",
   },
 ];
 
@@ -83,6 +83,12 @@ export default function LandingPage() {
               className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] transition-colors font-medium"
             >
               Pipeline Simulation
+            </Link>
+            <Link
+              href="/data"
+              className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] transition-colors font-medium"
+            >
+              Process Data
             </Link>
             <Link
               href="/dashboard"
@@ -227,7 +233,7 @@ export default function LandingPage() {
                       "Model 1: EfficientNet (binary OK vs. Defective) + Grad-CAM",
                       "Model 2: ResNet-18 (6 defect classes with attention masking) or YOLOv8-seg",
                       "Model 3: XGBoost root-cause with factory telemetry & historical data",
-                      "LLM Layer: Gemini 1.5 Flash (JSON structurer + 3-sentence incident report)",
+                      "LLM Layer: Gemini (JSON structurer + 3-sentence incident report)",
                     ].map((line) => (
                       <li
                         key={line}
@@ -255,7 +261,7 @@ export default function LandingPage() {
                   </div>
                   <div className="rounded-xl border border-[#E5DFD3] bg-[#FAF8F5] p-4 space-y-1.5">
                     <div className="flex items-center gap-2 text-sm font-semibold">
-                      <Sparkles aria-hidden="true" className="w-4 h-4" /> Gemini 1.5 Flash
+                      <Sparkles aria-hidden="true" className="w-4 h-4" /> Gemini
                     </div>
                     <p className="text-xs text-[#57534E] leading-relaxed">
                       Two-stage pipeline: first structures XGBoost outputs into clean JSON, then generates the final 3-sentence incident report.
