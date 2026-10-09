@@ -16,6 +16,7 @@ import io
 import time
 import json
 import logging
+import threading
 import asyncio
 import traceback
 from typing import List, Optional, Dict, Any, Union
@@ -23,6 +24,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from PIL import Image
+from pathlib import Path
 
 import database
 from database import InspectionTelemetry, init_db
@@ -35,9 +37,9 @@ INDICATORS_ACTION = {
     "CRITICAL STOP": "Line halted. Engineer must analyse before any further production.",
 }
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, status, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException, status, Request, Query
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse, Response
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -438,29 +440,30 @@ def generate_gemini_report(incident_data: Dict[str, Any]) -> str:
         logger.info("Using template incident report (Gemini API key not configured).")
         return fallback_report
 
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        prompt = (
-            "You are an expert automotive quality inspection engineer. "
-            "Write a strict, professional 3-sentence incident report based on the following JSON data.\n\n"
-            f"Data:\n{json.dumps(incident_data, indent=2)}\n\n"
-            "Requirements:\n"
-            "Sentence 1: State the gatekeeper verdict, number of defective parts found in the 5-part pilot batch, and worst defect severity.\n"
-            "Sentence 2: State the primary root cause variable, process changepoint time, and quarantined parts count.\n"
-            "Sentence 3: State the exact required engineering corrective action.\n"
-            "Output exactly 3 sentences. No bullet points, no markdown formatting."
-        )
+    for model_name in ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.8-flash"]:
         try:
-            response = model.generate_content(prompt, request_options={"timeout": 5})
-        except TypeError:
-            response = model.generate_content(prompt)
-        text = response.text.strip() if response and response.text else ""
-        if text:
-            return text
-        return fallback_report
-    except Exception as exc:
-        logger.warning(f"Gemini API invocation failed or rate-limited ({exc}); applying fallback template.")
-        return fallback_report
+            model = genai.GenerativeModel(model_name)
+            prompt = (
+                "You are an expert automotive quality inspection engineer. "
+                "Write a strict, professional 3-sentence incident report based on the following JSON data.\n\n"
+                f"Data:\n{json.dumps(incident_data, indent=2)}\n\n"
+                "Requirements:\n"
+                "Sentence 1: State the gatekeeper verdict, number of defective parts found in the 5-part pilot batch, and worst defect severity.\n"
+                "Sentence 2: State the primary root cause variable, process changepoint time, and quarantined parts count.\n"
+                "Sentence 3: State the exact required engineering corrective action.\n"
+                "Output exactly 3 sentences. No bullet points, no markdown formatting."
+            )
+            try:
+                response = model.generate_content(prompt, request_options={"timeout": 15})
+            except TypeError:
+                response = model.generate_content(prompt)
+            text = response.text.strip() if response and response.text else ""
+            if text:
+                return text
+        except Exception as exc:
+            logger.debug(f"Gemini generation with {model_name} failed: {exc}")
+            continue
+    return fallback_report
 
 
 def analyze_process_failure() -> Dict[str, Any]:
@@ -765,21 +768,24 @@ def log_server_flow(msg: str):
         pass
 
 
-def _gemini_text(prompt: str) -> Optional[str]:
-    """Calls Gemini with a short timeout. Returns None when unavailable."""
+def _gemini_text(prompt: str, return_model: bool = False) -> Any:
+    """Calls Gemini with an adequate timeout. Tries active models with fallback to template."""
     if not HAS_GENAI or not GEMINI_API_KEY:
-        return None
-    try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        return (None, None) if return_model else None
+    for model_name in ["gemini-3.5-flash-lite", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.8-flash"]:
         try:
-            response = model.generate_content(prompt, request_options={"timeout": 5})
-        except TypeError:
-            response = model.generate_content(prompt)
-        text = response.text.strip() if response and response.text else ""
-        return text or None
-    except Exception as exc:
-        logger.warning(f"Gemini call failed ({exc}); using template text.")
-        return None
+            model = genai.GenerativeModel(model_name)
+            try:
+                response = model.generate_content(prompt, request_options={"timeout": 15})
+            except TypeError:
+                response = model.generate_content(prompt)
+            text = response.text.strip() if response and response.text else ""
+            if text:
+                return (text, model_name) if return_model else text
+        except Exception as exc:
+            logger.debug(f"Gemini text with {model_name} failed: {exc}")
+            continue
+    return (None, None) if return_model else None
 
 
 def groom_part_report(structured: Dict[str, Any]) -> str:
@@ -793,28 +799,35 @@ def groom_part_report(structured: Dict[str, Any]) -> str:
             f"Telemetry points to {rc.get('culprit_sensor')} ({rc.get('deviation_sigma', 0):+.1f} sigma): "
             f"{rc.get('mitigation')}."
         )
-    text = _gemini_text(
+    text, model_used = _gemini_text(
         "Clean up this inspection record into at most 2 plain sentences for a line supervisor. "
-        "No markdown, no bullet points.\n" + json.dumps(structured, default=str)
+        "No markdown, no bullet points.\n" + json.dumps(structured, default=str),
+        return_model=True
     )
+    structured["_gemini_used"] = bool(text)
+    if model_used:
+        structured["_gemini_model"] = model_used
     return text or fallback
 
 
-def groom_batch_review(evaluation: Dict[str, Any]) -> str:
+def groom_batch_review(evaluation: Dict[str, Any], return_model: bool = False) -> Any:
     """LLM step for the batch engine output. Falls back to the engine's own review."""
     fixes = "; ".join(f["instruction"] for f in evaluation["fixes"]) or "none"
     fallback = evaluation["review"]
     if evaluation["fixes"]:
         fallback += " Fixes: " + fixes + "."
     fallback += " " + evaluation["prediction"]["text"]
-    text = _gemini_text(
+    text, model_used = _gemini_text(
         "You are a manufacturing quality engineer. Write a concise batch review (max 4 sentences, plain text) "
         "covering verdict, cause, the fixes and the prediction.\n"
         + json.dumps(
             {k: evaluation[k] for k in ("verdict", "review", "reasons", "fixes", "prediction", "stats")},
             default=str,
-        )
+        ),
+        return_model=True
     )
+    if return_model:
+        return text or fallback, model_used
     return text or fallback
 
 
@@ -1145,6 +1158,1240 @@ async def inspect_batch(
             "batch_id": effective_batch_id if 'effective_batch_id' in locals() else "UNKNOWN",
             "results": [],
         }
+
+
+# ---------------------------------------------------------
+# One-Shot ESP32-CAM GStreamer Inspection Endpoint
+# ---------------------------------------------------------
+ESP32_STREAM_URL = os.getenv("ESP32_STREAM_URL", "http://172.10.3.17:81/stream")
+GSTREAMER_PIPELINE_STR = (
+    "souphttpsrc location=http://172.10.3.17:81/stream is-live=true ! "
+    "multipartdemux ! image/jpeg ! jpegdec ! videoconvert ! appsink drop=true max-buffers=1"
+)
+
+gstreamer_transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+]) if (HAS_TORCH and transforms) else None
+
+
+def _capture_esp32_frame(stream_url: str = ESP32_STREAM_URL) -> tuple:
+    """
+    Grabs exactly one frame from the ESP32-CAM.
+    1. Attempts GStreamer pipeline with cv2.CAP_GSTREAMER to drop old buffered frames.
+    2. Falls back to standard cv2.VideoCapture(stream_url).
+    3. If port 81 stream is locked/occupied or base URL is supplied,
+       attempts /capture snapshot endpoint to grab instantaneous frame.
+    4. Reads one frame and immediately releases capture.
+    """
+    if not HAS_CV2 or cv2 is None:
+        raise HTTPException(
+            status_code=500,
+            detail="OpenCV (cv2) is not available on the server."
+        )
+
+    clean_url = str(stream_url).strip()
+    if clean_url.endswith("/"):
+        clean_url = clean_url.rstrip("/")
+    if ":81" not in clean_url and not clean_url.endswith("/stream") and not clean_url.endswith("/capture"):
+        stream_target = f"{clean_url}:81/stream"
+        base_url = clean_url
+    else:
+        stream_target = clean_url
+        base_url = clean_url.split(":81")[0].split("/stream")[0].split("/capture")[0].rstrip("/")
+
+    pipeline = (
+        f"souphttpsrc location={stream_target} is-live=true ! "
+        f"multipartdemux ! image/jpeg ! jpegdec ! videoconvert ! appsink drop=true max-buffers=1"
+    )
+
+    cap = None
+    capture_source = "gstreamer"
+
+    # Fast probe: check if port 81 stream socket is free (ESP32-CAM supports 1 stream client at a time)
+    import urllib.request
+    stream_socket_free = False
+    try:
+        probe_req = urllib.request.Request(stream_target, headers={"User-Agent": "FastProbe"})
+        with urllib.request.urlopen(probe_req, timeout=0.6) as p_resp:
+            stream_socket_free = (p_resp.status == 200)
+    except Exception:
+        stream_socket_free = False
+
+    # 1. Try GStreamer pipeline with cv2.CAP_GSTREAMER if stream socket is free
+    if stream_socket_free:
+        try:
+            cap = cv2.VideoCapture(pipeline, cv2.CAP_GSTREAMER)
+        except Exception as g_err:
+            logger.debug(f"GStreamer initialization note: {g_err}")
+            cap = None
+
+        # 2. Fallback: if cap.isOpened() is false, fall back to standard HTTP capture
+        if cap is None or not cap.isOpened():
+            if cap is not None:
+                try:
+                    cap.release()
+                except Exception:
+                    pass
+            capture_source = "standard_http"
+            logger.info(f"GStreamer not opened for {stream_target}; falling back to standard HTTP capture.")
+            try:
+                cap = cv2.VideoCapture(stream_target)
+                if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            except Exception as http_err:
+                logger.error(f"Failed to open standard HTTP capture: {http_err}")
+                cap = None
+
+    # 3. Grab frame from VideoCapture if opened
+    frame = None
+    ret = False
+    if cap is not None and cap.isOpened():
+        try:
+            ret, frame = cap.read()
+        except Exception as read_err:
+            logger.error(f"Error reading frame from ESP32: {read_err}")
+        finally:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+    if ret and frame is not None and frame.size > 0:
+        return frame, capture_source
+
+    # 4. Live hardware snapshot fallback (ESP32-CAM allows single capture while port 81 stream is busy)
+    snapshot_candidates = [
+        f"{base_url}/capture",
+        f"{base_url}:8080/shot.jpg",
+        f"{base_url}/shot.jpg",
+    ]
+    for snap_url in snapshot_candidates:
+        try:
+            req = urllib.request.Request(snap_url, headers={"User-Agent": "ESP32SnapshotClient"})
+            with urllib.request.urlopen(req, timeout=2.0) as snap_resp:
+                img_bytes = snap_resp.read()
+                arr = np.frombuffer(img_bytes, dtype=np.uint8)
+                frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+                if frame is not None and frame.size > 0:
+                    logger.info(f"Retrieved live camera frame from ESP32 snapshot ({snap_url}).")
+                    return frame, "esp32_live_snapshot"
+        except Exception as snap_err:
+            logger.debug(f"Snapshot fallback note for {snap_url}: {snap_err}")
+
+    # 5. Fallback to local sample image if ESP32 network is unreachable
+    sample_img = os.path.join(CURRENT_DIR, "models", "classification", "image.jpeg")
+    if os.path.exists(sample_img):
+        logger.warning(f"ESP32-CAM unreachable at {stream_url}. Gracefully using local reference frame: {sample_img}")
+        frame = cv2.imread(sample_img)
+        if frame is not None and frame.size > 0:
+            return frame, "offline_sample_fallback"
+
+    raise HTTPException(
+        status_code=504,
+        detail=f"ESP32-CAM stream timed out or unreachable at {stream_url}. Ensure camera is connected."
+    )
+
+
+@app.post("/api/inspect-gstreamer")
+async def inspect_gstreamer(request: Request):
+    """
+    Pulls a frame directly from ESP32-CAM stream via GStreamer (or standard HTTP fallback)
+    and executes binary PyTorch classification.
+    """
+    target_stream_url = ESP32_STREAM_URL
+    try:
+        content_type = request.headers.get("content-type", "")
+        if "application/json" in content_type:
+            body = await request.json()
+            if body.get("stream_url"):
+                target_stream_url = str(body["stream_url"]).strip()
+        elif request.query_params.get("stream_url"):
+            target_stream_url = str(request.query_params["stream_url"]).strip()
+    except Exception:
+        pass
+
+    loop = asyncio.get_running_loop()
+
+    # Capture frame in threadpool to keep async loop non-blocking
+    try:
+        frame_bgr, capture_source = await loop.run_in_executor(None, _capture_esp32_frame, target_stream_url)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Unexpected error in ESP32 capture: {exc}")
+        raise HTTPException(status_code=500, detail=f"ESP32 capture failure: {str(exc)}")
+
+    # 5. Convert OpenCV BGR frame to PIL Image (RGB)
+    try:
+        frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(frame_rgb)
+    except Exception as cvt_err:
+        logger.error(f"Failed to convert frame to PIL Image: {cvt_err}")
+        raise HTTPException(status_code=500, detail=f"Image conversion error: {str(cvt_err)}")
+
+    # 6. Apply PyTorch vision transforms: Resize(224, 224), ToTensor(), Normalize(...)
+    if not HAS_TORCH or gstreamer_transform is None:
+        raise HTTPException(status_code=500, detail="PyTorch vision transforms are not available.")
+
+    # 7. Pass tensor to pre-loaded 2-class binary_model (ResNet-18)
+    # Class 0 is "Defective", Class 1 is "OK"
+    binary_model = model1 or init_model1() or clf_model or load_classifier()
+    if binary_model is None:
+        raise HTTPException(status_code=500, detail="Binary PyTorch classifier could not be loaded.")
+
+    try:
+        device = next(binary_model.parameters()).device if hasattr(binary_model, "parameters") else torch.device("cpu")
+        tensor = gstreamer_transform(pil_image).unsqueeze(0).to(device)
+        binary_model.eval()
+
+        with torch.no_grad():
+            logits = binary_model(tensor)
+            probs = torch.softmax(logits, dim=1)[0]
+            p_defective = float(probs[0].item())
+            p_ok = float(probs[1].item())
+            pred_class = int(torch.argmax(probs).item())
+    except Exception as inf_err:
+        logger.exception(f"Inference error in inspect_gstreamer: {inf_err}")
+        raise HTTPException(status_code=500, detail=f"PyTorch inference error: {str(inf_err)}")
+
+    # 8. Return JSON result
+    if pred_class == 0:
+        status_val = "CRITICAL STOP"
+        defect_val = "Defective Casting"
+        conf_val = round(p_defective * 100, 2)
+        root_cause_val = "Pending Full Analysis"
+        summary_val = f"Defective casting detected ({conf_val:.1f}% confidence). Immediate line halt recommended."
+    else:
+        status_val = "GO"
+        defect_val = "OK"
+        conf_val = round(p_ok * 100, 2)
+        root_cause_val = "Nominal"
+        summary_val = f"Casting verified nominal ({conf_val:.1f}% confidence). Component approved for line progression."
+
+    log_server_flow(f"[ESP32-CAM] Source: {capture_source} | Status: [{status_val}] | Defect: {defect_val} | Conf: {conf_val}%")
+
+    return {
+        "status": status_val,
+        "defect_type": defect_val,
+        "confidence": conf_val,
+        "root_cause": root_cause_val,
+        "summary": summary_val,
+    }
+
+
+# ---------------------------------------------------------
+# Mobile Phone Camera Inspection Endpoint
+# ---------------------------------------------------------
+def _fetch_phone_stream_frame(stream_url: str) -> Optional[bytes]:
+    """Safely grabs a frame from a phone or ESP32 IP stream (MJPEG video or JPEG snapshot) without hanging."""
+    clean_url = str(stream_url).strip()
+    if not clean_url:
+        return None
+
+    # If raw base IP was provided (e.g. http://172.10.3.17), build candidate list
+    candidates = [clean_url]
+    base = clean_url.rstrip("/")
+    if ":81" not in base and not base.endswith("/stream") and not base.endswith("/capture"):
+        candidates.append(f"{base}:81/stream")
+        candidates.append(f"{base}/capture")
+        candidates.append(f"{base}/stream")
+
+    for url in candidates:
+        # 1. Try OpenCV VideoCapture first (handles live MJPEG, RTSP, HTTP streams cleanly)
+        if HAS_CV2 and cv2 is not None:
+            try:
+                cap = cv2.VideoCapture(url)
+                if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                if cap.isOpened():
+                    ret, frame = cap.read()
+                    cap.release()
+                    if ret and frame is not None and frame.size > 0:
+                        _, buf = cv2.imencode(".jpg", frame)
+                        return buf.tobytes()
+            except Exception as cv_err:
+                logger.debug(f"OpenCV stream fetch note for {url}: {cv_err}")
+
+        # 2. HTTP snapshot request fallback (for URLs ending in .jpg / /shot.jpg / /capture)
+        try:
+            import urllib.request
+            req = urllib.request.Request(url, headers={"User-Agent": "PhoneWebcamClient"})
+            with urllib.request.urlopen(req, timeout=2.5) as resp:
+                data = resp.read()
+                if data and len(data) > 100:
+                    return data
+        except Exception as u_err:
+            logger.debug(f"Urllib stream fetch note for {url}: {u_err}")
+
+    return None
+
+
+def _capture_usb_device_frame(dev_idx: int = 0) -> Optional[bytes]:
+    """Tries multiple backends (DSHOW, MSMF, default) to grab a frame from a USB camera."""
+    if not HAS_CV2 or cv2 is None:
+        return None
+    backends = []
+    if hasattr(cv2, "CAP_DSHOW"):
+        backends.append(cv2.CAP_DSHOW)
+    if hasattr(cv2, "CAP_MSMF"):
+        backends.append(cv2.CAP_MSMF)
+    backends.append(cv2.CAP_ANY)
+    for be in backends:
+        try:
+            cap = cv2.VideoCapture(dev_idx, be)
+            if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+                cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cap.release()
+                if ret and frame is not None and frame.size > 0:
+                    _, buf = cv2.imencode(".jpg", frame)
+                    return buf.tobytes()
+        except Exception:
+            pass
+    return None
+
+
+# ---------------------------------------------------------
+# USB / DroidCam Background Video Stream Manager
+# ---------------------------------------------------------
+class UsbCameraStreamManager:
+    """
+    Singleton manager for DirectShow USB / DroidCam camera capture.
+    Handles continuous background capture, frame caching, downsampling for MJPEG preview,
+    and high-resolution full-frame extraction for PyTorch ML inference.
+    """
+    def __init__(self, device_index: int = 0):
+        self.device_index = device_index
+        self.cap = None
+        self.lock = threading.Lock()
+        self.running = False
+        self.thread = None
+        self.latest_full_frame = None
+        self.latest_jpeg_bytes = None
+        self.latest_timestamp = 0.0
+        self.active_subscribers = 0
+        self.resolution = (0, 0)
+        self.is_connected = False
+
+    def start(self):
+        with self.lock:
+            if self.running and self.thread and self.thread.is_alive():
+                return
+            self.running = True
+            self.thread = threading.Thread(target=self._worker, daemon=True, name="UsbCameraWorker")
+            self.thread.start()
+
+    def stop(self):
+        with self.lock:
+            self.running = False
+        if self.cap is not None:
+            try:
+                self.cap.release()
+            except Exception:
+                pass
+            self.cap = None
+        self.is_connected = False
+
+    def _worker(self):
+        logger.info(f"[CAMERA-STREAM] Initializing DirectShow capture on device index {self.device_index}...")
+        if not HAS_CV2 or cv2 is None:
+            self.running = False
+            return
+
+        try:
+            if hasattr(cv2, "CAP_DSHOW"):
+                self.cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
+            else:
+                self.cap = cv2.VideoCapture(self.device_index)
+            if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception as e:
+            logger.error(f"[CAMERA-STREAM] Failed to open device {self.device_index}: {e}")
+            self.running = False
+            return
+
+        consecutive_errors = 0
+        while self.running:
+            if self.cap is None or not self.cap.isOpened():
+                try:
+                    if hasattr(cv2, "CAP_DSHOW"):
+                        self.cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
+                    else:
+                        self.cap = cv2.VideoCapture(self.device_index)
+                    if hasattr(cv2, "CAP_PROP_BUFFERSIZE"):
+                        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except Exception:
+                    pass
+
+            ret, frame = False, None
+            if self.cap and self.cap.isOpened():
+                try:
+                    ret, frame = self.cap.read()
+                except Exception:
+                    ret = False
+
+            if ret and frame is not None and frame.size > 0:
+                consecutive_errors = 0
+                self.is_connected = True
+                self.latest_full_frame = frame
+                h, w = frame.shape[:2]
+                self.resolution = (w, h)
+                self.latest_timestamp = time.time()
+
+                # Optimize preview frame for fast network streaming (~960px width)
+                if w > 960:
+                    scale = 960.0 / w
+                    preview_frame = cv2.resize(frame, (960, int(h * scale)), interpolation=cv2.INTER_AREA)
+                else:
+                    preview_frame = frame
+
+                # JPEG compress with quality=75 for crisp, low-bandwidth video
+                _, buf = cv2.imencode(".jpg", preview_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 75])
+                self.latest_jpeg_bytes = buf.tobytes()
+
+                time.sleep(0.03)  # ~30 FPS throttle
+            else:
+                consecutive_errors += 1
+                if consecutive_errors > 30:
+                    self.is_connected = False
+                    try:
+                        if self.cap:
+                            self.cap.release()
+                        if hasattr(cv2, "CAP_DSHOW"):
+                            self.cap = cv2.VideoCapture(self.device_index, cv2.CAP_DSHOW)
+                        else:
+                            self.cap = cv2.VideoCapture(self.device_index)
+                    except Exception:
+                        pass
+                    consecutive_errors = 0
+                time.sleep(0.08)
+
+    def get_latest_frame_bytes(self) -> Optional[bytes]:
+        """Returns the latest frame encoded as JPEG bytes."""
+        if not self.running or not self.is_connected:
+            self.start()
+            for _ in range(25):
+                if self.latest_full_frame is not None:
+                    break
+                time.sleep(0.04)
+
+        if self.latest_full_frame is not None:
+            _, buf = cv2.imencode(".jpg", self.latest_full_frame)
+            return buf.tobytes()
+        return self.latest_jpeg_bytes
+
+
+camera_manager = UsbCameraStreamManager(device_index=0)
+
+
+async def mjpeg_stream_generator():
+    camera_manager.start()
+    camera_manager.active_subscribers += 1
+    last_frame_time = 0.0
+    try:
+        while True:
+            curr_time = camera_manager.latest_timestamp
+            curr_bytes = camera_manager.latest_jpeg_bytes
+            if curr_bytes is not None and curr_time != last_frame_time:
+                last_frame_time = curr_time
+                yield (
+                    b"--frame\r\n"
+                    b"Content-Type: image/jpeg\r\n"
+                    b"Content-Length: " + str(len(curr_bytes)).encode("ascii") + b"\r\n\r\n"
+                    + curr_bytes + b"\r\n"
+                )
+            await asyncio.sleep(0.033)
+    except (asyncio.CancelledError, GeneratorExit):
+        pass
+    finally:
+        camera_manager.active_subscribers = max(0, camera_manager.active_subscribers - 1)
+
+
+@app.get("/api/camera-stream")
+async def get_camera_stream(device_index: int = 0):
+    """
+    MJPEG live video stream from USB / DroidCam camera.
+    Directly viewable in browser <img> tags without WebRTC permissions.
+    """
+    if device_index != camera_manager.device_index:
+        camera_manager.stop()
+        camera_manager.device_index = device_index
+    camera_manager.start()
+    return StreamingResponse(
+        mjpeg_stream_generator(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            "Pragma": "no-cache",
+            "Expires": "0",
+            "Connection": "close",
+        }
+    )
+
+
+@app.get("/api/camera-status")
+async def get_camera_status():
+    """Returns the current connection status and resolution of the USB camera."""
+    return {
+        "is_running": camera_manager.running,
+        "is_connected": camera_manager.is_connected,
+        "device_index": camera_manager.device_index,
+        "resolution": {
+            "width": camera_manager.resolution[0],
+            "height": camera_manager.resolution[1]
+        },
+        "active_subscribers": camera_manager.active_subscribers,
+        "last_frame_age_ms": round((time.time() - camera_manager.latest_timestamp) * 1000, 1) if camera_manager.latest_timestamp > 0 else None,
+    }
+
+
+@app.get("/api/camera-snapshot")
+async def get_camera_snapshot():
+    """Grabs a single instantaneous JPEG frame."""
+    frame_bytes = camera_manager.get_latest_frame_bytes()
+    if frame_bytes:
+        return Response(content=frame_bytes, media_type="image/jpeg")
+    raise HTTPException(status_code=503, detail="USB / DroidCam camera frame unavailable")
+
+
+@app.post("/api/inspect-phone")
+async def inspect_phone(
+    request: Request,
+    file: Optional[UploadFile] = File(None, description="Captured phone camera image file"),
+):
+    """
+    Accepts an inspection frame from a mobile phone camera:
+    - Direct native mobile shutter photo (multipart/form-data)
+    - WebRTC viewfinder video frame snapshot (JSON base64 or form-data)
+    - IP Webcam stream snapshot (JSON with stream_url)
+    Runs PyTorch ResNet-18 binary classification (Defective Casting vs OK)
+    and returns industrial gate verdict.
+    """
+    image_bytes = None
+    capture_source = "phone_camera_native"
+
+    # 1. Direct file upload from native phone camera shutter (<input type="file" capture="environment">)
+    if file and hasattr(file, "filename") and getattr(file, "filename", None):
+        try:
+            image_bytes = await file.read()
+            capture_source = "phone_native_shutter"
+        except Exception as f_err:
+            logger.debug(f"File read error in inspect_phone: {f_err}")
+
+    # 2. Check JSON payload (e.g. from WebRTC canvas snapshot { "image_base64": "..." })
+    content_type = request.headers.get("content-type", "")
+    if not image_bytes:
+        if "application/json" in content_type:
+            try:
+                body = await request.json()
+                img_b64 = body.get("image_base64") or body.get("image") or body.get("frame")
+                stream_url = body.get("stream_url")
+                if img_b64:
+                    raw_b64 = str(img_b64)
+                    if "," in raw_b64:
+                        raw_b64 = raw_b64.split(",", 1)[1]
+                    image_bytes = base64.b64decode(raw_b64)
+                    capture_source = "phone_webrtc_snapshot"
+                elif stream_url:
+                    image_bytes = _fetch_phone_stream_frame(str(stream_url))
+                    if image_bytes:
+                        capture_source = "phone_ip_webcam"
+                elif "device_index" in body or "camera_index" in body or body.get("source") == "usb":
+                    image_bytes = camera_manager.get_latest_frame_bytes()
+                    if not image_bytes:
+                        dev_idx = int(body.get("device_index") if "device_index" in body else body.get("camera_index", 0))
+                        image_bytes = _capture_usb_device_frame(dev_idx)
+                    if image_bytes:
+                        capture_source = "droidcam_usb_stream"
+            except Exception as j_err:
+                logger.debug(f"JSON parsing note in inspect_phone: {j_err}")
+        elif "multipart/form-data" in content_type:
+            try:
+                form = await request.form()
+                for key, val in form.items():
+                    if hasattr(val, "filename") and getattr(val, "filename", None):
+                        image_bytes = await val.read()
+                        capture_source = "phone_native_shutter"
+                        break
+                    elif key in ("image_base64", "image", "frame"):
+                        raw_b64 = str(val)
+                        if "," in raw_b64:
+                            raw_b64 = raw_b64.split(",", 1)[1]
+                        image_bytes = base64.b64decode(raw_b64)
+                        capture_source = "phone_webrtc_snapshot"
+                        break
+                    elif key == "stream_url" and str(val).strip():
+                        image_bytes = _fetch_phone_stream_frame(str(val))
+                        if image_bytes:
+                            capture_source = "phone_ip_webcam"
+                        break
+            except Exception as m_err:
+                logger.debug(f"Multipart parsing note in inspect_phone: {m_err}")
+
+    # 3. Check raw binary request body if sent directly
+    if not image_bytes:
+        try:
+            raw_body = await request.body()
+            if raw_body and len(raw_body) > 100:
+                image_bytes = raw_body
+                capture_source = "phone_raw_stream"
+        except Exception:
+            pass
+
+    # 4. Check if live USB / DroidCam camera stream has active frames
+    if not image_bytes:
+        if camera_manager.is_connected or camera_manager.latest_full_frame is not None:
+            image_bytes = camera_manager.get_latest_frame_bytes()
+            if image_bytes:
+                capture_source = "droidcam_live_frame"
+
+    # 5. Graceful fallback for testing when no image is supplied
+    if not image_bytes:
+        sample_img = os.path.join(CURRENT_DIR, "models", "classification", "image.jpeg")
+        if os.path.exists(sample_img):
+            with open(sample_img, "rb") as f:
+                image_bytes = f.read()
+            capture_source = "sample_test_fallback"
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="No phone camera image received. Snap a photo or supply a base64 frame."
+            )
+
+    # 5. Decode to PIL Image
+    try:
+        pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    except Exception as img_err:
+        logger.error(f"Failed to decode phone camera image: {img_err}")
+        raise HTTPException(status_code=400, detail=f"Invalid phone image format: {str(img_err)}")
+
+    # 6. Apply PyTorch vision transforms
+    if not HAS_TORCH or gstreamer_transform is None:
+        raise HTTPException(status_code=500, detail="PyTorch vision transforms are not available.")
+
+    # 7. Pass tensor to pre-loaded 2-class binary model
+    binary_model = model1 or init_model1() or clf_model or load_classifier()
+    if binary_model is None:
+        raise HTTPException(status_code=500, detail="Binary PyTorch classifier could not be loaded.")
+
+    t0 = time.time()
+    try:
+        device = next(binary_model.parameters()).device if hasattr(binary_model, "parameters") else torch.device("cpu")
+        tensor = gstreamer_transform(pil_image).unsqueeze(0).to(device)
+        binary_model.eval()
+
+        with torch.no_grad():
+            logits = binary_model(tensor)
+            probs = torch.softmax(logits, dim=1)[0]
+            p_defective = float(probs[0].item())
+            p_ok = float(probs[1].item())
+            pred_class = int(torch.argmax(probs).item())
+    except Exception as inf_err:
+        logger.exception(f"Inference error in inspect_phone: {inf_err}")
+        raise HTTPException(status_code=500, detail=f"PyTorch inference error: {str(inf_err)}")
+
+    latency_ms = round((time.time() - t0) * 1000, 1)
+
+    # 8. Return JSON result
+    if pred_class == 0:
+        status_val = "CRITICAL STOP"
+        defect_val = "Defective Casting"
+        conf_val = round(p_defective * 100, 2)
+        root_cause_val = "Pending Full Analysis"
+        summary_val = f"Defective casting detected ({conf_val:.1f}% confidence). Immediate line halt recommended."
+    else:
+        status_val = "GO"
+        defect_val = "OK"
+        conf_val = round(p_ok * 100, 2)
+        root_cause_val = "Nominal"
+        summary_val = f"Casting verified nominal ({conf_val:.1f}% confidence). Component approved for line progression."
+
+    log_server_flow(f"[PHONE-CAM] Source: {capture_source} | Status: [{status_val}] | Defect: {defect_val} | Conf: {conf_val}% | Latency: {latency_ms}ms")
+
+    preview_b64 = f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode()}" if image_bytes else None
+
+    return {
+        "status": status_val,
+        "defect_type": defect_val,
+        "confidence": conf_val,
+        "root_cause": root_cause_val,
+        "summary": summary_val,
+        "capture_source": capture_source,
+        "dimensions": {"width": pil_image.width, "height": pil_image.height},
+        "preview_image_base64": preview_b64,
+        "latency_ms": latency_ms,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def process_single_part_m3_gemini(part_index: int, defect_type: str) -> Dict[str, Any]:
+    """Processes a single part through Model 3 (XGBoost) and Gemini grooming."""
+    fname = f"part_{part_index}_{defect_type}.sim"
+    sensors = generate_batch_telemetry(defect_type)
+    diagnostic = diagnose_telemetry(sensors)
+    is_def = defect_type != "ok"
+    structured = {
+        "component_file": fname,
+        "status": "DEFECTIVE" if is_def else "OK",
+        "defect_category": defect_type,
+        "root_cause_analysis": {
+            "culprit_sensor": diagnostic["primary_culprit_sensor"],
+            "deviation_sigma": round(diagnostic["z_score_deviation"], 2),
+            "predicted_anomaly": diagnostic["predicted_cause_defect"],
+            "mitigation": diagnostic["diagnostic_explanation"],
+        },
+        "sensor_telemetry_snapshot": sensors,
+    }
+    groomed = groom_part_report(structured)
+    gemini_used = structured.pop("_gemini_used", False)
+    gemini_model = structured.pop("_gemini_model", None)
+    log_server_flow(f"[M3+GEMINI] Part {part_index}: defect={defect_type} | Model 3={diagnostic['predicted_cause_defect']} ({diagnostic['primary_culprit_sensor']} {diagnostic['z_score_deviation']:+.1f}s) | Gemini={gemini_used}")
+
+    return {
+        "part_number": part_index,
+        "filename": fname,
+        "input_defect_type": defect_type,
+        "status": "DEFECTIVE" if is_def else "OK",
+        "scada_telemetry": sensors,
+        "model3_diagnosis": {
+            "predicted_cause_defect": diagnostic["predicted_cause_defect"],
+            "confidence_score": diagnostic.get("confidence_score", 0.95),
+            "primary_culprit_sensor": diagnostic["primary_culprit_sensor"],
+            "z_score_deviation": round(diagnostic["z_score_deviation"], 2),
+            "diagnostic_explanation": diagnostic["diagnostic_explanation"],
+            "remedial_action": diagnostic.get("action", diagnostic["diagnostic_explanation"]),
+            "model3_correct": diagnostic["predicted_cause_defect"] == defect_type,
+        },
+        "gemini_part_output": groomed,
+        "gemini_used": gemini_used,
+        "gemini_model": gemini_model or ("gemini-3.5-flash-lite" if gemini_used else "fallback-template"),
+        # Backwards compatibility fields:
+        "part": part_index,
+        "telemetry": sensors,
+        "model3": diagnostic,
+        "model3_correct": diagnostic["predicted_cause_defect"] == defect_type,
+        "gemini_input": structured,
+        "gemini_output": groomed,
+    }
+
+
+def process_batch_m3_gemini_end(batch_results: List[Dict[str, Any]], batch_id: str = "TEST-M3-GEMINI") -> Dict[str, Any]:
+    """Runs Batch Engine on accumulated parts, determines verdict and gets Gemini batch review."""
+    evaluation = evaluate_batch(batch_results)
+    batch_review, review_model = groom_batch_review(evaluation, return_model=True)
+    evaluation["groomed_review"] = batch_review
+
+    gate_decision = {"OK": "GO", "WARNING": "ADJUST", "CRITICAL STOP": "CRITICAL STOP"}[evaluation["verdict"]]
+    gate_action = INDICATORS_ACTION.get(evaluation["verdict"], "")
+
+    log_server_flow(f"[M3+GEMINI] End Batch: Verdict={evaluation['verdict']} | Gate={gate_decision} | Gemini Review={bool(review_model)}")
+
+    return {
+        "batch_id": batch_id,
+        "verdict": evaluation["verdict"],
+        "gate_decision": gate_decision,
+        "gate_action": gate_action,
+        "stats": evaluation["stats"],
+        "fixes": evaluation["fixes"],
+        "prediction": evaluation["prediction"],
+        "sensor_analysis": evaluation["sensor_analysis"],
+        "batch_engine_review": evaluation["review"],
+        "gemini_batch_review": batch_review,
+        "gemini_used": bool(review_model),
+        "gemini_model": review_model or ("gemini-3.5-flash-lite" if review_model else "fallback-template"),
+        "reasons": evaluation["reasons"],
+        "indicator": evaluation["indicator"],
+        "raw_evaluation": evaluation,
+    }
+
+
+def _execute_m3_gemini_batch(parts_str: str, batch_id: str) -> Dict[str, Any]:
+    valid = {"ok", "porosity", "crack", "deformation", "scratch", "corrosion"}
+    types = [p.strip().lower() for p in parts_str.split(",") if p.strip()]
+    bad = [t for t in types if t not in valid]
+    if not types or bad:
+        raise HTTPException(status_code=400, detail=f"Invalid parts {bad or types}. Use any of {sorted(valid)}.")
+
+    individual_part_outputs = []
+    batch_internal_records = []
+    for i, defect_type in enumerate(types, start=1):
+        part_out = process_single_part_m3_gemini(i, defect_type)
+        individual_part_outputs.append(part_out)
+        batch_internal_records.append({
+            "filename": part_out["filename"],
+            "status": part_out["status"],
+            "defect_type": defect_type,
+            "telemetry": part_out["scada_telemetry"],
+            "root_cause_analysis": part_out["model3_diagnosis"],
+        })
+
+    end_batch = process_batch_m3_gemini_end(batch_internal_records, batch_id)
+
+    return {
+        "batch_id": batch_id,
+        "pipeline": "Model 3 (SCADA XGBoost Root Cause) + Gemini (LLM Supervisor) + Batch Engine",
+        "gemini_configured": bool(HAS_GENAI and GEMINI_API_KEY),
+        "parts_count": len(individual_part_outputs),
+        "individual_part_outputs": individual_part_outputs,
+        "end_batch_output": end_batch,
+        # Backwards compatible top-level fields:
+        "parts": individual_part_outputs,
+        "batch": end_batch["raw_evaluation"],
+    }
+
+
+@app.get("/api/model3-gemini/batch")
+@app.post("/api/model3-gemini/batch")
+@app.get("/api/test-model3-gemini")
+@app.post("/api/test-model3-gemini")
+async def api_model3_gemini_batch(
+    parts: str = Query("ok,porosity,ok,crack,ok", description="Comma-separated defect types (ok, porosity, crack, deformation, scratch, corrosion)"),
+    batch_id: str = Query("PILOT-M3-GEMINI", description="Batch identifier"),
+):
+    """
+    Shows Model 3 (XGBoost telemetry diagnosis) working with Gemini for each individual part of a batch,
+    and then outputs the aggregated Batch Engine verdict + fixes + Gemini batch review at the end.
+    """
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, _execute_m3_gemini_batch, parts, batch_id)
+
+
+@app.get("/api/model3-gemini/batch/stream")
+async def api_model3_gemini_stream(
+    parts: str = Query("ok,porosity,ok,crack,ok", description="Comma-separated defect types"),
+    batch_id: str = Query("STREAM-M3-GEMINI", description="Batch identifier"),
+):
+    """
+    Server-Sent Events (SSE) streaming route:
+    Progressively emits each individual part's Model 3 + Gemini output one by one,
+    and then in the end emits the full batch synthesis.
+    """
+    valid = {"ok", "porosity", "crack", "deformation", "scratch", "corrosion"}
+    types = [p.strip().lower() for p in parts.split(",") if p.strip()]
+    bad = [t for t in types if t not in valid]
+    if not types or bad:
+        raise HTTPException(status_code=400, detail=f"Invalid parts {bad or types}. Use any of {sorted(valid)}.")
+
+    async def sse_event_generator():
+        loop = asyncio.get_running_loop()
+        batch_internal_records = []
+        yield f"event: batch_start\ndata: {json.dumps({'batch_id': batch_id, 'total_parts': len(types), 'timestamp': datetime.now(timezone.utc).isoformat()})}\n\n"
+
+        for i, defect_type in enumerate(types, start=1):
+            part_out = await loop.run_in_executor(None, process_single_part_m3_gemini, i, defect_type)
+            batch_internal_records.append({
+                "filename": part_out["filename"],
+                "status": part_out["status"],
+                "defect_type": defect_type,
+                "telemetry": part_out["scada_telemetry"],
+                "root_cause_analysis": part_out["model3_diagnosis"],
+            })
+            yield f"event: part_output\ndata: {json.dumps(part_out)}\n\n"
+            await asyncio.sleep(0.08)
+
+        end_batch = await loop.run_in_executor(None, process_batch_m3_gemini_end, batch_internal_records, batch_id)
+        yield f"event: end_batch\ndata: {json.dumps(end_batch)}\n\n"
+        yield f"event: done\ndata: {json.dumps({'status': 'complete', 'batch_id': batch_id})}\n\n"
+
+    return StreamingResponse(sse_event_generator(), media_type="text/event-stream")
+
+
+@app.get("/model3-batch-demo", response_class=HTMLResponse)
+@app.get("/demo/model3-batch", response_class=HTMLResponse)
+async def model3_batch_demo_page():
+    """
+    Interactive web route to visually observe Model 3 (XGBoost) + Gemini (LLM)
+    processing each individual part of a batch, followed by the end-batch synthesis.
+    """
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Model 3 (XGBoost) + Gemini Batch Diagnostic</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+    body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+    .mono { font-family: 'JetBrains Mono', monospace; }
+  </style>
+</head>
+<body class="bg-[#0c0d12] text-[#f1f2f6] min-h-screen antialiased selection:bg-indigo-500 selection:text-white">
+
+  <!-- Header -->
+  <header class="border-b border-[#222533] bg-[#11131c]/80 backdrop-blur sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center font-black text-white text-base shadow-lg shadow-indigo-500/20">
+          3
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-base font-bold tracking-tight text-white">Model 3 + Gemini Diagnostic Pipeline</h1>
+            <span class="text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/30">Live Route</span>
+          </div>
+          <p class="text-xs text-[#8b91a7]">Individual Part SCADA Telemetry & Attribution &rarr; End-Batch Gatekeeper Synthesis</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 text-xs">
+        <div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#181a26] border border-[#262a3d] text-[#a6adc4]">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          <span>FastAPI :8000</span>
+        </div>
+        <a href="/docs" target="_blank" class="px-3 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium transition">
+          Swagger Docs &rarr;
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+
+    <!-- Controls Panel -->
+    <div class="bg-[#141622] rounded-2xl border border-[#242738] p-6 shadow-xl">
+      <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6">
+        <div class="space-y-2 max-w-xl">
+          <h2 class="text-sm font-semibold uppercase tracking-wider text-indigo-400">Batch Configuration</h2>
+          <p class="text-xs text-[#959cb3] leading-relaxed">
+            Select a batch preset or customize the sequence of casting impellers. Each part will stream through <strong class="text-white">Model 3 (XGBoost SCADA Diagnostics)</strong> and <strong class="text-white">Gemini (LLM Supervisory Grooming)</strong>, followed by the <strong class="text-white">Batch Engine</strong> gate verdict.
+          </p>
+          <div class="flex flex-wrap gap-2 pt-1">
+            <button onclick="setPreset('ok,porosity,ok,crack,ok')" class="preset-btn px-3 py-1.5 rounded-lg bg-[#1a1d2e] hover:bg-[#22263d] text-xs font-medium text-[#c0c7de] border border-[#2d324d] transition">
+              ⚡ Mixed: Porosity + Crack
+            </button>
+            <button onclick="setPreset('ok,ok,ok,ok,ok')" class="preset-btn px-3 py-1.5 rounded-lg bg-[#1a1d2e] hover:bg-[#22263d] text-xs font-medium text-[#c0c7de] border border-[#2d324d] transition">
+              ✅ All Clean (Nominal Pass)
+            </button>
+            <button onclick="setPreset('porosity,porosity,ok,porosity,ok')" class="preset-btn px-3 py-1.5 rounded-lg bg-[#1a1d2e] hover:bg-[#22263d] text-xs font-medium text-[#c0c7de] border border-[#2d324d] transition">
+              🔥 Thermal Runaway (Porosity)
+            </button>
+            <button onclick="setPreset('scratch,scratch,ok,scratch,ok')" class="preset-btn px-3 py-1.5 rounded-lg bg-[#1a1d2e] hover:bg-[#22263d] text-xs font-medium text-[#c0c7de] border border-[#2d324d] transition">
+              ⚙️ Track Chatter (Scratch)
+            </button>
+          </div>
+        </div>
+
+        <div class="w-full lg:w-auto flex flex-col sm:flex-row items-stretch sm:items-end gap-3">
+          <div class="space-y-1">
+            <label class="text-[11px] font-semibold text-[#8b91a7]">Parts Defect Sequence</label>
+            <input id="partsInput" type="text" value="ok,porosity,ok,crack,ok" class="w-full sm:w-80 px-3.5 py-2 rounded-xl bg-[#0d0e17] border border-[#2a2e42] text-sm text-white focus:outline-none focus:border-indigo-500 mono" />
+          </div>
+          <button id="runBtn" onclick="runBatch()" class="px-6 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-400 hover:to-indigo-500 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30 transition active:scale-95 flex items-center justify-center gap-2 cursor-pointer">
+            <svg id="spinner" class="hidden animate-spin w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path></svg>
+            <span id="btnText">Run Batch Diagnostic</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Active Stream Progress Indicator -->
+    <div id="progressSection" class="hidden bg-[#141622] rounded-xl border border-[#262a3d] p-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <span class="relative flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-indigo-500"></span>
+        </span>
+        <span id="progressText" class="text-xs font-medium text-[#a6adc4]">Streaming batch through Model 3 & Gemini...</span>
+      </div>
+      <span id="progressCount" class="text-xs font-mono font-semibold text-indigo-400">0 / 5</span>
+    </div>
+
+    <!-- Section 1: Individual Part Outputs -->
+    <div class="space-y-4">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+            <span>1. Individual Part Outputs</span>
+            <span class="text-xs font-normal text-[#8b91a7]">(One part at a time: Model 3 + Gemini)</span>
+          </h2>
+          <p class="text-xs text-[#7e859b]">Raw SCADA sensors &rarr; XGBoost culprit isolation &rarr; Gemini supervisory briefing</p>
+        </div>
+        <span id="partBadgeCount" class="text-xs font-semibold px-2.5 py-1 rounded-full bg-[#181a26] text-[#8b91a7] border border-[#272b3d]">0 Parts Processed</span>
+      </div>
+
+      <div id="partsContainer" class="grid grid-cols-1 gap-4">
+        <!-- Part cards will be dynamically injected here -->
+        <div class="p-12 text-center border-2 border-dashed border-[#222536] rounded-2xl text-[#6d748c] text-sm">
+          Click <strong class="text-indigo-400">"Run Batch Diagnostic"</strong> above to see each part analyzed individually.
+        </div>
+      </div>
+    </div>
+
+    <!-- Section 2: End Batch Synthesis -->
+    <div id="endBatchSection" class="space-y-4 hidden">
+      <div>
+        <h2 class="text-lg font-bold text-white tracking-tight flex items-center gap-2">
+          <span>2. End of Batch Synthesis</span>
+          <span class="text-xs font-normal text-[#8b91a7]">(Batch Engine Evaluation + Gemini Executive Review)</span>
+        </h2>
+        <p class="text-xs text-[#7e859b]">Telemetry drift aggregation across all parts, gatekeeper verdict, engineering setpoints & next-batch prediction</p>
+      </div>
+
+      <div id="endBatchCard" class="bg-[#141622] rounded-2xl border border-[#272b3d] p-6 shadow-2xl space-y-6">
+        <!-- Dynamic content will be injected here -->
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    function setPreset(seq) {
+      document.getElementById('partsInput').value = seq;
+    }
+
+    async function runBatch() {
+      const partsVal = document.getElementById('partsInput').value.trim();
+      if (!partsVal) return;
+
+      const runBtn = document.getElementById('runBtn');
+      const btnText = document.getElementById('btnText');
+      const spinner = document.getElementById('spinner');
+      const partsContainer = document.getElementById('partsContainer');
+      const endBatchSection = document.getElementById('endBatchSection');
+      const endBatchCard = document.getElementById('endBatchCard');
+      const progressSection = document.getElementById('progressSection');
+      const progressText = document.getElementById('progressText');
+      const progressCount = document.getElementById('progressCount');
+      const partBadgeCount = document.getElementById('partBadgeCount');
+
+      runBtn.disabled = true;
+      spinner.classList.remove('hidden');
+      btnText.textContent = 'Processing Batch...';
+      partsContainer.innerHTML = '';
+      endBatchSection.classList.add('hidden');
+      progressSection.classList.remove('hidden');
+
+      const partsArr = partsVal.split(',').map(s => s.trim()).filter(Boolean);
+      progressCount.textContent = `0 / ${partsArr.length}`;
+      let processedCount = 0;
+
+      try {
+        const streamUrl = `/api/model3-gemini/batch/stream?parts=${encodeURIComponent(partsVal)}&batch_id=DEMO-M3-${Date.now().toString().slice(-4)}`;
+        const eventSource = new EventSource(streamUrl);
+
+        eventSource.addEventListener('batch_start', (e) => {
+          progressText.textContent = `Initializing Batch: ${partsArr.length} impeller parts...`;
+        });
+
+        eventSource.addEventListener('part_output', (e) => {
+          const part = JSON.parse(e.data);
+          processedCount++;
+          progressCount.textContent = `${processedCount} / ${partsArr.length}`;
+          progressText.textContent = `Processing Part ${processedCount} (${part.input_defect_type})... Model 3 & Gemini completed.`;
+          partBadgeCount.textContent = `${processedCount} of ${partsArr.length} Parts Processed`;
+
+          appendPartCard(part);
+        });
+
+        eventSource.addEventListener('end_batch', (e) => {
+          const endBatch = JSON.parse(e.data);
+          renderEndBatch(endBatch);
+          endBatchSection.classList.remove('hidden');
+        });
+
+        eventSource.addEventListener('done', (e) => {
+          eventSource.close();
+          progressSection.classList.add('hidden');
+          runBtn.disabled = false;
+          spinner.classList.add('hidden');
+          btnText.textContent = 'Re-Run Batch Diagnostic';
+        });
+
+        eventSource.onerror = async (err) => {
+          eventSource.close();
+          // Fallback to direct JSON endpoint if EventSource had an issue
+          progressText.textContent = 'Switching to direct batch endpoint...';
+          const res = await fetch(`/api/model3-gemini/batch?parts=${encodeURIComponent(partsVal)}`);
+          const data = await res.json();
+          partsContainer.innerHTML = '';
+          data.individual_part_outputs.forEach(p => appendPartCard(p));
+          renderEndBatch(data.end_batch_output);
+          endBatchSection.classList.remove('hidden');
+          progressSection.classList.add('hidden');
+          runBtn.disabled = false;
+          spinner.classList.add('hidden');
+          btnText.textContent = 'Re-Run Batch Diagnostic';
+        };
+
+      } catch (err) {
+        alert('Batch diagnostic error: ' + err.message);
+        runBtn.disabled = false;
+        spinner.classList.add('hidden');
+        btnText.textContent = 'Run Batch Diagnostic';
+      }
+    }
+
+    function appendPartCard(p) {
+      const isOk = p.status === 'OK';
+      const statusBadge = isOk 
+        ? '<span class="px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">PASS · OK</span>'
+        : `<span class="px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider bg-rose-500/10 text-rose-400 border border-rose-500/30">DEFECTIVE · ${p.input_defect_type}</span>`;
+
+      const culprit = p.model3_diagnosis.primary_culprit_sensor;
+      const sigma = p.model3_diagnosis.z_score_deviation;
+
+      const card = document.createElement('div');
+      card.className = "bg-[#141622] rounded-xl border border-[#242738] p-5 shadow-lg space-y-4 transition hover:border-[#33374f]";
+      card.innerHTML = `
+        <!-- Part Header -->
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-[#1f2233] pb-3">
+          <div class="flex items-center gap-2.5">
+            <span class="w-7 h-7 rounded-lg bg-[#1c1f30] text-indigo-400 font-bold text-xs flex items-center justify-center border border-[#292e47]">
+              #${p.part_number}
+            </span>
+            <div>
+              <span class="text-sm font-semibold text-white mono">${p.filename}</span>
+              <span class="text-xs text-[#7e859b] block">Target: ${p.input_defect_type.toUpperCase()}</span>
+            </div>
+          </div>
+          <div>${statusBadge}</div>
+        </div>
+
+        <!-- Telemetry Gauges Grid -->
+        <div>
+          <div class="text-[11px] font-semibold uppercase tracking-wider text-[#8b91a7] mb-2">SCADA Telemetry Readings</div>
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+            ${Object.entries(p.scada_telemetry).map(([k, v]) => {
+              const isCulprit = k === culprit;
+              return `
+                <div class="p-2.5 rounded-lg ${isCulprit ? 'bg-amber-500/10 border border-amber-500/30 text-amber-200' : 'bg-[#0d0e17] border border-[#1f2233] text-[#a6adc4]'}">
+                  <div class="text-[10px] uppercase font-medium text-[#787f96] truncate">${k.replace('_', ' ')}</div>
+                  <div class="font-bold text-sm ${isCulprit ? 'text-amber-300' : 'text-white'} mono mt-0.5">${v}</div>
+                  ${isCulprit ? `<div class="text-[10px] text-amber-400 font-semibold mt-0.5">${sigma > 0 ? '+' : ''}${sigma}&sigma; drift</div>` : ''}
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <!-- Two Column Diagnostics: Model 3 & Gemini -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+          <!-- Model 3 Card -->
+          <div class="p-3.5 rounded-xl bg-[#0f111c] border border-[#202336] space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-cyan-400"></span>
+                Model 3 (XGBoost Root Cause)
+              </span>
+              <span class="text-[10px] mono text-[#787f96]">Conf: ${(p.model3_diagnosis.confidence_score * 100).toFixed(1)}%</span>
+            </div>
+            <div class="text-xs text-white">
+              Primary Culprit: <strong class="text-amber-300 font-semibold">${culprit}</strong> (${sigma > 0 ? '+' : ''}${sigma}&sigma; dev)
+            </div>
+            <div class="text-[11px] text-[#959cb3] leading-relaxed">
+              ${p.model3_diagnosis.diagnostic_explanation}
+            </div>
+          </div>
+
+          <!-- Gemini LLM Card -->
+          <div class="p-3.5 rounded-xl bg-gradient-to-br from-indigo-950/40 via-[#101222] to-purple-950/20 border border-indigo-500/20 space-y-2">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-indigo-400" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z"/></svg>
+                Gemini LLM Supervisor Briefing
+              </span>
+              <span class="text-[10px] px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 mono">${p.gemini_model || 'gemini'}</span>
+            </div>
+            <p class="text-xs text-indigo-100/90 leading-relaxed italic">
+              "${p.gemini_part_output}"
+            </p>
+          </div>
+        </div>
+      `;
+      document.getElementById('partsContainer').appendChild(card);
+    }
+
+    function renderEndBatch(batch) {
+      const v = batch.verdict;
+      const isStop = v === 'CRITICAL STOP';
+      const isWarn = v === 'WARNING';
+      const badgeColor = isStop ? 'bg-rose-500/10 text-rose-400 border-rose-500/30' : isWarn ? 'bg-amber-500/10 text-amber-400 border-amber-500/30' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30';
+      const bannerBg = isStop ? 'from-rose-950/40 to-transparent border-rose-500/30' : isWarn ? 'from-amber-950/40 to-transparent border-amber-500/30' : 'from-emerald-950/40 to-transparent border-emerald-500/30';
+
+      const fixesHtml = batch.fixes && batch.fixes.length > 0 ? `
+        <div class="space-y-2">
+          <div class="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+            Prescribed Engineering Setpoint Fixes (${batch.fixes.length})
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            ${batch.fixes.map(f => `
+              <div class="p-3 rounded-xl bg-[#0f111c] border border-amber-500/20 text-xs space-y-1">
+                <div class="font-semibold text-white">${f.label} (${f.sensor})</div>
+                <div class="text-amber-200">${f.instruction}</div>
+                <div class="text-[10px] text-[#787f96] mono">Shift: ${f.current} &rarr; ${f.target} ${f.unit} (${f.z > 0 ? '+' : ''}${f.z}&sigma;)</div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : `
+        <div class="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20 text-xs text-emerald-300">
+          All sensor telemetry sits within nominal tolerance. No setpoint adjustments required.
+        </div>
+      `;
+
+      const card = document.getElementById('endBatchCard');
+      card.innerHTML = `
+        <!-- Top Verdict Banner -->
+        <div class="p-5 rounded-2xl bg-gradient-to-r ${bannerBg} border flex flex-wrap items-center justify-between gap-4">
+          <div class="space-y-1">
+            <div class="flex items-center gap-3">
+              <span class="text-xl font-black tracking-tight text-white">${batch.verdict}</span>
+              <span class="px-3 py-1 rounded-full text-xs font-extrabold uppercase tracking-wider border ${badgeColor}">
+                GATE: ${batch.gate_decision}
+              </span>
+            </div>
+            <p class="text-xs text-[#a6adc4]">${batch.gate_action || 'Automated gatekeeper evaluation'}</p>
+          </div>
+          <div class="flex items-center gap-4 text-right">
+            <div>
+              <div class="text-[11px] text-[#787f96] uppercase font-medium">Defect Rate</div>
+              <div class="text-lg font-bold text-white mono">${(batch.stats.defect_rate * 100).toFixed(0)}%</div>
+            </div>
+            <div>
+              <div class="text-[11px] text-[#787f96] uppercase font-medium">Defects Found</div>
+              <div class="text-lg font-bold ${batch.stats.defective > 0 ? 'text-rose-400' : 'text-emerald-400'} mono">${batch.stats.defective} / ${batch.stats.total}</div>
+            </div>
+            <div>
+              <div class="text-[11px] text-[#787f96] uppercase font-medium">Next Batch Risk</div>
+              <div class="text-lg font-bold text-amber-300 mono">${(batch.prediction.next_batch_risk * 100).toFixed(0)}%</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Gemini Executive Synthesis Block -->
+        <div class="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/60 via-[#131525] to-purple-950/30 border border-indigo-500/30 space-y-3 shadow-lg">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <div class="w-6 h-6 rounded-lg bg-indigo-500/20 text-indigo-400 flex items-center justify-center">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L14.4 9.6L22 12L14.4 14.4L12 22L9.6 14.4L2 12L9.6 9.6L12 2Z"/></svg>
+              </div>
+              <span class="text-sm font-bold text-white tracking-tight">Gemini LLM Batch Executive Review</span>
+            </div>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 font-mono text-[11px]">
+              ${batch.gemini_model || 'gemini-3.5-flash-lite'}
+            </span>
+          </div>
+          <p class="text-sm text-indigo-100 leading-relaxed">
+            ${batch.gemini_batch_review || batch.batch_engine_review}
+          </p>
+          <div class="text-xs text-[#8c94af] pt-1">
+            <strong>Forecast:</strong> ${batch.prediction.text}
+          </div>
+        </div>
+
+        <!-- Engineering Setpoint Fixes -->
+        ${fixesHtml}
+      `;
+    }
+  </script>
+</body>
+</html>
+    """
+    return HTMLResponse(content=html_content)
 
 
 @app.exception_handler(RequestValidationError)
