@@ -5,47 +5,8 @@ const REMOTE_BACKEND_BASE = "http://82.112.231.102";
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB
 const ALLOWED_IMAGE_EXTENSIONS = /\.(jpe?g|png|webp|svg|bmp|tiff)$/i;
 
-interface SingleClassificationResponse {
-  status: "OK" | "Defective" | "success";
-  prediction: "OK" | "DEFECTIVE";
-  verdict: "nominal" | "confirmed_defect";
-  is_defective: boolean;
-  message: string;
-  predicted_defects?: string[];
-  confidence_scores?: Record<string, string>;
-  requires_human_review?: boolean;
-  confidence_score?: number;
-  probabilities?: { defect: number; ok: number };
-  filename?: string;
-  latency_ms: number;
-  pipeline_stage: string;
-  raw_classification?: Record<string, unknown>;
-  raw_integrated?: Record<string, unknown>;
-  vision_results?: {
-    has_defect: boolean;
-    defect_type?: string;
-    severity?: string;
-    original_image_base64?: string;
-    original_url?: string;
-    heatmap_image_base64?: string;
-    heatmap_png_url?: string;
-    overlay_blend_mode?: string;
-    recommended_opacity?: number;
-    hotspots?: Array<{
-      x: number;
-      y: number;
-      zone: string;
-      severity: string;
-      area_frac: number;
-      peak_z?: number;
-      score?: number;
-    }>;
-    segmentation_instances?: unknown[];
-  };
-}
-
 /**
- * Generate a calibrated Grad-CAM JET heatmap SVG data URI for resilient fallback and mock demo flows.
+ * Generate a calibrated Grad-CAM JET heatmap SVG data URI for resilient fallback and mock flows.
  */
 function generateHeatmapSvg(defectType: string = "defect", isDefect: boolean = true): string {
   const cx = 416;
@@ -105,7 +66,7 @@ async function fileToBase64(file: File): Promise<string> {
 async function dispatchToBackend(
   endpointPath: string,
   formData: FormData,
-  timeoutMs: number = 8000
+  timeoutMs: number = 18000
 ): Promise<{ data: Record<string, unknown> | null; error: string | null; target: string | null }> {
   const candidateUrls = [
     DEFAULT_BACKEND_BASE,
@@ -114,7 +75,6 @@ async function dispatchToBackend(
     REMOTE_BACKEND_BASE,
   ];
 
-  // Deduplicate candidates preserving order
   const uniqueUrls = Array.from(new Set(candidateUrls.filter(Boolean)));
 
   for (const baseUrl of uniqueUrls) {
@@ -152,6 +112,7 @@ export async function POST(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const mock = searchParams.get("mock");
     const allowFallback = searchParams.get("fallback") === "true";
+    const batchIdParam = searchParams.get("batch_id") || `BATCH-${Date.now()}`;
 
     // 1. Explicit mock simulation
     if (mock) {
@@ -160,52 +121,100 @@ export async function POST(request: NextRequest) {
       const defectType = isDefect ? "crack" : "nominal";
       const heatmapUri = generateHeatmapSvg(defectType, isDefect);
 
-      if (isDefect) {
-        return NextResponse.json({
-          status: "Defective",
-          prediction: "DEFECTIVE",
-          verdict: "confirmed_defect",
-          is_defective: true,
-          message: "Defect detected in component.",
-          predicted_defects: ["crack"],
-          confidence_scores: { crack: "88.4%" },
-          requires_human_review: true,
-          confidence_score: 95.4,
-          probabilities: { defect: 0.954, ok: 0.046 },
-          filename: "simulated_component.jpg",
-          latency_ms: latencyMs,
-          pipeline_stage: "integrated_pipeline_completed",
-          vision_results: {
-            has_defect: true,
-            defect_type: "crack",
-            severity: "Critical",
-            original_image_base64: "",
-            heatmap_image_base64: heatmapUri,
-            overlay_blend_mode: "screen",
-            recommended_opacity: 0.85,
-          },
-        });
-      }
-
-      return NextResponse.json({
-        status: "OK",
-        prediction: "OK",
-        verdict: "nominal",
-        is_defective: false,
-        message: "Part is OK and good to go.",
-        confidence_score: 98.8,
-        probabilities: { defect: 0.012, ok: 0.988 },
+      const mockResult = {
         filename: "simulated_component.jpg",
-        latency_ms: latencyMs,
-        pipeline_stage: "classification_passed",
+        status: isDefect ? "DEFECTIVE" : "OK",
+        defect_type: defectType,
+        predicted_defects: isDefect ? ["crack"] : [],
+        confidence_scores: isDefect ? { crack: "88.4%" } : {},
+        telemetry: {
+          mold_temp: isDefect ? 632.0 : 685.0,
+          injection_pressure: isDefect ? 172.0 : 142.0,
+          cooling_rate: isDefect ? 22.0 : 12.0,
+          vibration: isDefect ? 2.1 : 1.2,
+          machine_speed: 1200,
+          humidity: 42.0,
+        },
+        root_cause_analysis: {
+          predicted_cause_defect: isDefect ? "crack" : "ok",
+          confidence_score: 0.954,
+          primary_culprit_sensor: isDefect ? "injection_pressure" : "mold_temp",
+          z_score_deviation: isDefect ? 3.4 : 0.2,
+          diagnostic_explanation: isDefect
+            ? "Hydraulic ram injection / pack pressure fluctuation"
+            : "Nominal process baseline",
+          action: isDefect
+            ? "Decrease injection pressure to 142 bar nominal"
+            : "Release component to assembly",
+        },
+        gemini_report: isDefect
+          ? "Crack detected on leading edge. Process telemetry indicates severe injection pressure spike (+3.4 sigma)."
+          : "All visual and telemetry parameters within Six Sigma tolerance limits.",
         vision_results: {
-          has_defect: false,
-          defect_type: "nominal",
+          has_defect: isDefect,
+          defect_type: defectType,
           original_image_base64: "",
           heatmap_image_base64: heatmapUri,
-          overlay_blend_mode: "screen",
-          recommended_opacity: 0.85,
+          hotspots: isDefect
+            ? [{ x: 0.52, y: 0.48, zone: "rim", severity: "Critical", area_frac: 0.08, peak_z: 4.85 }]
+            : [],
         },
+      };
+
+      return NextResponse.json({
+        batch_id: batchIdParam,
+        status: "COMPLETED",
+        verdict: isDefect ? "CRITICAL STOP" : "OK",
+        gate_decision: isDefect ? "CRITICAL STOP" : "GO",
+        gate_status: {
+          decision: isDefect ? "CRITICAL STOP" : "GO",
+          action: isDefect
+            ? "Line halted. Engineer must analyse before any further production."
+            : "Batch passed. Authorize generation of the next batch.",
+          defects: isDefect ? 1 : 0,
+          worst_severity: isDefect ? "Critical" : "Nominal",
+          reject_parts: isDefect ? [0] : [],
+        },
+        batch_analysis: {
+          verdict: isDefect ? "CRITICAL STOP" : "OK",
+          review: isDefect
+            ? "1 part analysed (0 OK, 1 defective). Defect: crack. Telemetry drift in injection pressure."
+            : "1 part analysed (1 OK, 0 defective). Nominal process confirmed.",
+          reasons: isDefect ? ["defect rate 100% is at or above 40%"] : ["all parts passed"],
+          prediction: {
+            text: isDefect
+              ? "Further production would scrap more parts. Hold line until pressure valve is calibrated."
+              : "Next batch expected to run clean.",
+            next_batch_risk: isDefect ? 0.88 : 0.05,
+            closest_signature: isDefect ? "crack" : "ok",
+          },
+          fixes: isDefect
+            ? [
+                {
+                  sensor: "injection_pressure",
+                  label: "Injection pressure",
+                  unit: "bar",
+                  current: 172.0,
+                  target: 142.0,
+                  change: -30.0,
+                  instruction: "Decrease injection pressure by 30 bar (from 172 to 142 bar)",
+                },
+              ]
+            : [],
+          stats: {
+            total: 1,
+            ok: isDefect ? 0 : 1,
+            defective: isDefect ? 1 : 0,
+            defect_rate: isDefect ? 1.0 : 0.0,
+          },
+        },
+        supervisor_summary: isDefect
+          ? "Critical crack defect detected. Line quarantine recommended."
+          : "Part passed all visual and telemetry checks.",
+        processed_parts: 1,
+        defects_count: isDefect ? 1 : 0,
+        results: [mockResult],
+        latency_ms: latencyMs,
       });
     }
 
@@ -271,202 +280,147 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 3. Process Single File Pipeline
-    const file = rawFiles[0];
-    const originalFileBase64 = await fileToBase64(file);
-
-    const classifyFormData = new FormData();
-    classifyFormData.append("file", file, file.name || "component.jpg");
-
-    // Step A: Detect whether the component has a defect
-    const { data: classifyData, error: classifyError, target: backendTarget } =
-      await dispatchToBackend("/test/classify", classifyFormData, 8000);
-
-    // Fallback if backend is unavailable
-    if (!classifyData) {
-      if (allowFallback) {
-        const isDefect = file.name.toLowerCase().includes("defect");
-        const latencyMs = Math.round(performance.now() - startTime);
-        const defectType = isDefect ? "crack" : "nominal";
-        const heatmapUri = generateHeatmapSvg(defectType, isDefect);
-
-        if (isDefect) {
-          return NextResponse.json({
-            status: "Defective",
-            prediction: "DEFECTIVE",
-            verdict: "confirmed_defect",
-            is_defective: true,
-            message: "Defect detected in component.",
-            predicted_defects: ["crack"],
-            confidence_scores: { crack: "85.0%" },
-            requires_human_review: true,
-            confidence_score: 92.5,
-            probabilities: { defect: 0.925, ok: 0.075 },
-            filename: file.name,
-            latency_ms: latencyMs,
-            pipeline_stage: "integrated_pipeline_completed",
-            vision_results: {
-              has_defect: true,
-              defect_type: "crack",
-              severity: "Critical",
-              original_image_base64: originalFileBase64,
-              heatmap_image_base64: heatmapUri,
-              overlay_blend_mode: "screen",
-              recommended_opacity: 0.85,
-            },
-          });
-        }
-
-        return NextResponse.json({
-          status: "OK",
-          prediction: "OK",
-          verdict: "nominal",
-          is_defective: false,
-          message: "Part is OK and good to go.",
-          confidence_score: 97.4,
-          probabilities: { defect: 0.026, ok: 0.974 },
-          filename: file.name,
-          latency_ms: latencyMs,
-          pipeline_stage: "classification_passed",
-          vision_results: {
-            has_defect: false,
-            defect_type: "nominal",
-            original_image_base64: originalFileBase64,
-            heatmap_image_base64: heatmapUri,
-            overlay_blend_mode: "screen",
-            recommended_opacity: 0.85,
-          },
-        });
-      }
-
-      return NextResponse.json(
-        {
-          status: "error",
-          code: "BACKEND_UNAVAILABLE",
-          error: "Backend classification service is unreachable.",
-          detail: classifyError,
-        },
-        { status: 502 }
-      );
+    // 3. Prepare payload for the backend /api/inspect endpoint
+    // The backend /api/inspect accepts multi-part files under 'files' or 'file' and query/body batch_id
+    const inspectFormData = new FormData();
+    for (const f of rawFiles) {
+      inspectFormData.append("files", f, f.name || "component.jpg");
     }
 
-    // Determine defect status from classification
-    const rawPrediction = typeof classifyData.prediction === "string" ? classifyData.prediction.toUpperCase() : "";
-    const rawProbDefect =
-      classifyData.probabilities && typeof (classifyData.probabilities as Record<string, unknown>).defect === "number"
-        ? ((classifyData.probabilities as Record<string, unknown>).defect as number)
-        : null;
-
-    const isDefective =
-      rawPrediction === "DEFECTIVE" ||
-      classifyData.verdict === "confirmed_defect" ||
-      (rawProbDefect !== null && rawProbDefect >= 0.5);
-
-    // Step B: If part is OK, DO NOT call integrated-pipeline. Return immediately with nominal heatmap!
-    if (!isDefective) {
-      const latencyMs = Math.round(performance.now() - startTime);
-      const confScore =
-        typeof classifyData.confidence_score === "number"
-          ? classifyData.confidence_score * (classifyData.confidence_score <= 1 ? 100 : 1)
-          : 99.0;
-
-      const rawVision = classifyData.vision_results as SingleClassificationResponse["vision_results"] | undefined;
-      const heatmapUri =
-        rawVision?.heatmap_image_base64 || generateHeatmapSvg("nominal", false);
-
-      const okResponse: SingleClassificationResponse = {
-        status: "OK",
-        prediction: "OK",
-        verdict: "nominal",
-        is_defective: false,
-        message: "Part is OK and good to go.",
-        confidence_score: Math.round(confScore * 10) / 10,
-        probabilities: classifyData.probabilities as { defect: number; ok: number } | undefined,
-        filename: file.name,
-        latency_ms: latencyMs,
-        pipeline_stage: "classification_passed",
-        raw_classification: classifyData,
-        vision_results: {
-          has_defect: false,
-          defect_type: "Nominal Baseline",
-          original_image_base64: rawVision?.original_image_base64 || originalFileBase64,
-          heatmap_image_base64: heatmapUri,
-          overlay_blend_mode: "screen",
-          recommended_opacity: 0.85,
-          segmentation_instances: rawVision?.segmentation_instances,
-        },
-      };
-
-      return NextResponse.json(okResponse);
-    }
-
-    // Step C: If part has a defect, call /test-integrated-pipeline
-    const integratedFormData = new FormData();
-    integratedFormData.append("file", file, file.name || "component.jpg");
-
-    const { data: integratedData, error: integratedError } =
-      await dispatchToBackend("/test-integrated-pipeline", integratedFormData, 12000);
+    const inspectUrl = `/api/inspect?batch_id=${encodeURIComponent(batchIdParam)}`;
+    const { data: backendData, error: backendError, target: backendTarget } =
+      await dispatchToBackend(inspectUrl, inspectFormData, 30000);
 
     const latencyMs = Math.round(performance.now() - startTime);
-    const confScore =
-      typeof classifyData.confidence_score === "number"
-        ? classifyData.confidence_score * (classifyData.confidence_score <= 1 ? 100 : 1)
-        : 95.0;
 
-    // Extract integrated pipeline results
-    const predictedDefects =
-      integratedData && Array.isArray(integratedData.predicted_defects)
-        ? (integratedData.predicted_defects as string[])
-        : ["Defect detected"];
+    if (backendData && Array.isArray(backendData.results)) {
+      // Successfully evaluated by backend /api/inspect batch engine!
+      // Ensure each result item has original base64 if not provided
+      for (let i = 0; i < backendData.results.length; i++) {
+        const res = backendData.results[i] as Record<string, unknown>;
+        const correspondingFile = rawFiles[i] || rawFiles[0];
+        if (
+          res.vision_results &&
+          typeof res.vision_results === "object" &&
+          !(res.vision_results as Record<string, unknown>).original_image_base64
+        ) {
+          const b64 = await fileToBase64(correspondingFile);
+          (res.vision_results as Record<string, unknown>).original_image_base64 = b64;
+          (res.vision_results as Record<string, unknown>).original_url = b64;
+        }
+      }
 
-    const confidenceScores =
-      integratedData && typeof integratedData.confidence_scores === "object" && integratedData.confidence_scores !== null
-        ? (integratedData.confidence_scores as Record<string, string>)
-        : {};
+      return NextResponse.json({
+        ...backendData,
+        latency_ms: latencyMs,
+        backend_target: backendTarget,
+      });
+    }
 
-    const requiresHumanReview =
-      integratedData && typeof integratedData.requires_human_review === "boolean"
-        ? (integratedData.requires_human_review as boolean)
-        : true;
+    // Fallback if backend is unreachable and fallback is enabled
+    if (allowFallback) {
+      const fallbackResults = await Promise.all(
+        rawFiles.map(async (file, idx) => {
+          const isDefect = file.name.toLowerCase().includes("defect");
+          const defectType = isDefect ? (idx % 2 === 0 ? "crack" : "porosity") : "nominal";
+          const heatmapUri = generateHeatmapSvg(defectType, isDefect);
+          const origB64 = await fileToBase64(file);
 
-    // Ensure vision_results is always populated
-    const rawVision =
-      (integratedData?.vision_results as SingleClassificationResponse["vision_results"]) ||
-      (classifyData?.vision_results as SingleClassificationResponse["vision_results"]);
+          return {
+            filename: file.name,
+            status: isDefect ? "DEFECTIVE" : "OK",
+            defect_type: defectType,
+            predicted_defects: isDefect ? [defectType] : [],
+            confidence_scores: isDefect ? { [defectType]: "91.5%" } : {},
+            telemetry: {
+              mold_temp: isDefect ? 635.0 : 685.0,
+              injection_pressure: isDefect ? 174.0 : 142.0,
+              cooling_rate: isDefect ? 24.0 : 12.0,
+              vibration: isDefect ? 2.3 : 1.2,
+              machine_speed: 1200,
+              humidity: 42.0,
+            },
+            root_cause_analysis: {
+              predicted_cause_defect: isDefect ? defectType : "ok",
+              confidence_score: 0.94,
+              primary_culprit_sensor: isDefect ? "injection_pressure" : "mold_temp",
+              z_score_deviation: isDefect ? 3.2 : 0.1,
+              diagnostic_explanation: isDefect
+                ? "Hydraulic ram injection / pack pressure fluctuation"
+                : "Nominal process baseline",
+              action: isDefect
+                ? "Decrease injection pressure to 142 bar nominal"
+                : "Release component to assembly",
+            },
+            gemini_report: isDefect
+              ? `${defectType.toUpperCase()} defect detected. Telemetry indicates injection pressure anomaly.`
+              : "Part is OK and good to go.",
+            vision_results: {
+              has_defect: isDefect,
+              defect_type: defectType,
+              original_image_base64: origB64,
+              heatmap_image_base64: heatmapUri,
+              hotspots: isDefect
+                ? [{ x: 0.52, y: 0.48, zone: "hub", severity: "Critical", area_frac: 0.07, peak_z: 4.5 }]
+                : [],
+            },
+          };
+        })
+      );
 
-    const defectType = predictedDefects[0] || "defect";
-    const heatmapUri =
-      rawVision?.heatmap_image_base64 || generateHeatmapSvg(defectType, true);
+      const defCount = fallbackResults.filter((r) => r.status === "DEFECTIVE").length;
+      const verdict = defCount > 0 ? (defCount > 1 ? "CRITICAL STOP" : "WARNING") : "OK";
+      const gateDecision = verdict === "OK" ? "GO" : verdict === "WARNING" ? "ADJUST" : "CRITICAL STOP";
 
-    const defectiveResponse: SingleClassificationResponse = {
-      status: "Defective",
-      prediction: "DEFECTIVE",
-      verdict: "confirmed_defect",
-      is_defective: true,
-      message: "Defect detected: routed to integrated diagnostic pipeline.",
-      predicted_defects: predictedDefects,
-      confidence_scores: confidenceScores,
-      requires_human_review: requiresHumanReview,
-      confidence_score: Math.round(confScore * 10) / 10,
-      probabilities: classifyData.probabilities as { defect: number; ok: number } | undefined,
-      filename: file.name,
-      latency_ms: latencyMs,
-      pipeline_stage: "integrated_pipeline_completed",
-      raw_classification: classifyData,
-      raw_integrated: integratedData || { error: integratedError },
-      vision_results: {
-        has_defect: true,
-        defect_type: defectType,
-        severity: "Critical",
-        original_image_base64: rawVision?.original_image_base64 || originalFileBase64,
-        heatmap_image_base64: heatmapUri,
-        overlay_blend_mode: "screen",
-        recommended_opacity: 0.85,
-        segmentation_instances: rawVision?.segmentation_instances,
+      return NextResponse.json({
+        batch_id: batchIdParam,
+        status: "COMPLETED",
+        verdict,
+        gate_decision: gateDecision,
+        gate_status: {
+          decision: gateDecision,
+          action:
+            verdict === "OK"
+              ? "Batch passed. Authorize generation of the next batch."
+              : "Defect or drift found. Apply suggested fixes and re-inspect.",
+          defects: defCount,
+          worst_severity: verdict === "OK" ? "Nominal" : "Critical",
+          reject_parts: fallbackResults.map((r, i) => (r.status === "DEFECTIVE" ? i : -1)).filter((i) => i >= 0),
+        },
+        batch_analysis: {
+          verdict,
+          review: `${fallbackResults.length} part(s) analysed (${fallbackResults.length - defCount} OK, ${defCount} defective).`,
+          reasons: defCount > 0 ? [`${defCount} of ${fallbackResults.length} part(s) defective`] : ["all parts passed"],
+          prediction: {
+            text: defCount > 0 ? "Correct hydraulic pressure setpoints to prevent repeating defects." : "Next batch running clean.",
+            next_batch_risk: defCount > 0 ? 0.72 : 0.05,
+          },
+          fixes: defCount > 0 ? [{ sensor: "injection_pressure", label: "Injection pressure", instruction: "Calibrate pack pressure to 142 bar" }] : [],
+          stats: {
+            total: fallbackResults.length,
+            ok: fallbackResults.length - defCount,
+            defective: defCount,
+            defect_rate: defCount / fallbackResults.length,
+          },
+        },
+        supervisor_summary: defCount > 0 ? "Defects detected in batch inspection." : "Batch verified clean.",
+        processed_parts: fallbackResults.length,
+        defects_count: defCount,
+        results: fallbackResults,
+        latency_ms: latencyMs,
+        source: "fallback",
+      });
+    }
+
+    return NextResponse.json(
+      {
+        status: "error",
+        code: "BACKEND_UNAVAILABLE",
+        error: "Backend inspection service is unreachable.",
+        detail: backendError,
       },
-    };
-
-    return NextResponse.json(defectiveResponse);
+      { status: 502 }
+    );
   } catch (err) {
     const totalLatency = Math.round(performance.now() - startTime);
     return NextResponse.json(

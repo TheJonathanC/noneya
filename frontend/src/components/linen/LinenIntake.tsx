@@ -129,48 +129,12 @@ export function LinenIntake({
               </button>
             )}
             <span className="font-semibold text-xs tracking-tight text-[#1C1917]">
-              Upload Component
+              Component Batch Intake
             </span>
           </div>
 
-          <div
-            role="tablist"
-            aria-label="Upload inspection mode"
-            className="flex p-0.5 rounded-lg bg-[#EAE4D7] text-xs font-medium shrink-0"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "batch"}
-              onClick={() => {
-                onModeChange("batch");
-                setIntakeError(null);
-              }}
-              className={`py-1 px-2.5 rounded-md text-[11px] transition-all cursor-pointer ${
-                mode === "batch"
-                  ? "bg-[#FFFFFF] text-[#1C1917] font-semibold shadow-2xs"
-                  : "text-[#78716A] hover:text-[#1C1917]"
-              }`}
-            >
-              Batch
-            </button>
-
-            <button
-              type="button"
-              role="tab"
-              aria-selected={mode === "single"}
-              onClick={() => {
-                onModeChange("single");
-                setIntakeError(null);
-              }}
-              className={`py-1 px-2.5 rounded-md text-[11px] transition-all cursor-pointer ${
-                mode === "single"
-                  ? "bg-[#FFFFFF] text-[#1C1917] font-semibold shadow-2xs"
-                  : "text-[#78716A] hover:text-[#1C1917]"
-              }`}
-            >
-              Single
-            </button>
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#EAE4D7] text-[11px] font-semibold text-[#1C1917]">
+            <span>Batch Engine</span>
           </div>
         </div>
 

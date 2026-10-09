@@ -215,6 +215,28 @@ export function LinenResults({
     };
   }
 
+  // Extract batch engine analysis from rawJson
+  const batchAnalysis =
+    rawJson && typeof rawJson.batch_analysis === "object" && rawJson.batch_analysis !== null
+      ? (rawJson.batch_analysis as Record<string, unknown>)
+      : undefined;
+
+  const supervisorSummary =
+    typeof rawJson?.supervisor_summary === "string"
+      ? (rawJson.supervisor_summary as string)
+      : typeof batchAnalysis?.review === "string"
+      ? (batchAnalysis.review as string)
+      : activeItem.rootCauseSummary || null;
+
+  const batchFixes = Array.isArray(batchAnalysis?.fixes)
+    ? (batchAnalysis.fixes as Array<{ sensor: string; label: string; instruction: string; current?: number; target?: number; unit?: string }>)
+    : [];
+
+  const batchPrediction =
+    batchAnalysis && typeof batchAnalysis.prediction === "object" && batchAnalysis.prediction !== null
+      ? (batchAnalysis.prediction as { text?: string; next_batch_risk?: number; closest_signature?: string })
+      : undefined;
+
   // Primary Top-Level Tabs (Operator friendly, non-technical)
   const primaryTabs = isDefective
     ? [
@@ -474,22 +496,57 @@ export function LinenResults({
                 </div>
               )}
 
-              {/* Root Cause Summary & Recommended Action */}
-              {activeItem.rootCauseSummary && (
-                <div className="p-4 sm:p-5 rounded-xl border border-[#FED7D7] bg-[#FFF5F5] space-y-2 text-xs">
-                  <div className="font-semibold text-[#991B1B] flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
-                    <span>Probable Root Cause</span>
+              {/* Batch Engine Incident Review & Supervisor Summary */}
+              {supervisorSummary && (
+                <div className="p-4 sm:p-5 rounded-xl border border-[#FED7D7] bg-[#FFF5F5] space-y-2.5 text-xs">
+                  <div className="font-semibold text-[#991B1B] flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <AlertTriangle className="w-4 h-4 text-[#DC2626]" />
+                      <span>Supervisor Briefing & Batch Review</span>
+                    </div>
+                    {batchPrediction?.next_batch_risk !== undefined && (
+                      <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FEE2E2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
+                        Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
+                      </span>
+                    )}
                   </div>
-                  <p className="text-[#57534E] leading-relaxed">
-                    {activeItem.rootCauseSummary}
+                  <p className="text-[#57534E] leading-relaxed font-sans">
+                    {supervisorSummary}
                   </p>
-                  {activeItem.recommendedAction && (
-                    <div className="pt-2 border-t border-[#FCA5A5]/40 text-[#78350F] font-medium">
-                      <span className="font-semibold text-[#1C1917]">Corrective Action: </span>
-                      {activeItem.recommendedAction}
+                  {batchPrediction?.text && batchPrediction.text !== supervisorSummary && (
+                    <div className="pt-2 border-t border-[#FCA5A5]/40 text-[#78350F]">
+                      <span className="font-semibold text-[#1C1917]">Prediction: </span>
+                      {batchPrediction.text}
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* Batch Engine Concrete Sensor Setpoint Fixes */}
+              {batchFixes.length > 0 && (
+                <div className="p-4 sm:p-5 rounded-xl border border-[#FDE68A] bg-[#FFFDF5] space-y-2.5 text-xs">
+                  <div className="font-semibold text-[#92400E] flex items-center gap-1.5">
+                    <Sliders className="w-4 h-4 text-[#D97706]" />
+                    <span>Recommended Machine Setpoint Fixes ({batchFixes.length})</span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {batchFixes.map((fix, idx) => (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-lg bg-[#FFFFFF] border border-[#FDE68A] flex items-center justify-between text-xs gap-2"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full bg-[#D97706]" />
+                          <span className="font-medium text-[#1C1917]">{fix.instruction}</span>
+                        </div>
+                        {fix.current !== undefined && fix.target !== undefined && (
+                          <span className="font-mono text-[11px] text-[#78716A] tabular-nums shrink-0">
+                            {fix.current} → {fix.target} {fix.unit || ""}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -608,7 +665,8 @@ export function LinenResults({
                     The part is OK and good to go.
                   </div>
                   <p className="text-xs leading-relaxed text-[#57534E]">
-                    All optical surface contours, concentric radial zones (hub, vane cavity, flange, rim), and dimensional tolerances are verified nominal. Zero surface defects or thermal anomalies detected.
+                    {supervisorSummary ||
+                      "All optical surface contours, concentric radial zones (hub, vane cavity, flange, rim), and dimensional tolerances are verified nominal. Zero surface defects or thermal anomalies detected."}
                   </p>
                 </div>
               </div>

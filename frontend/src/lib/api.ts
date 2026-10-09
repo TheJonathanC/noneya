@@ -262,40 +262,50 @@ export async function inspectBatchPhotos(
     const payload = (rawJson.payload as Record<string, unknown>) || rawJson;
 
     const batchId =
-      typeof payload.batch_id === "string" ? payload.batch_id : `PILOT-${Date.now()}`;
+      typeof payload.batch_id === "string" ? payload.batch_id : `BATCH-${Date.now()}`;
 
-    const scannedParts = Array.isArray(payload.scanned_parts)
+    // Backend /api/inspect returns 'results', while legacy mocks return 'scanned_parts'
+    const resultsList = Array.isArray(payload.results)
+      ? (payload.results as Record<string, unknown>[])
+      : Array.isArray(payload.scanned_parts)
       ? (payload.scanned_parts as Record<string, unknown>[])
       : [];
 
     const items: InspectionItem[] = files.map((file, idx) => {
-      const scanned = scannedParts[idx] || {};
+      const resultData = resultsList[idx] || resultsList[0] || {};
       const partId = `P-IMP-${9810 + idx}`;
       const objectUrl = URL.createObjectURL(file);
 
       const merged = {
-        ...scanned,
-        prediction:
-          scanned.prediction ||
-          (scanned.verdict === "confirmed" ? "DEFECTIVE" : scanned.verdict === "ok" ? "OK" : undefined),
-        defect_type: scanned.defect_type,
-        confidence: scanned.clf_prob || scanned.confidence_score,
-        root_cause: payload.root_cause,
-        gemini_incident_report: payload.gemini_incident_report,
+        ...resultData,
+        batch_id: batchId,
+        gate_decision: payload.gate_decision,
+        gate_status: payload.gate_status,
+        batch_analysis: payload.batch_analysis,
+        supervisor_summary: payload.supervisor_summary,
+        root_cause_analysis: resultData.root_cause_analysis || payload.root_cause,
+        gemini_incident_report: resultData.gemini_report || payload.gemini_incident_report,
       };
 
-      return normalizeInspectionResponse(merged, partId, objectUrl);
+      const norm = normalizeInspectionResponse(merged, partId, objectUrl);
+      norm.fileName = file.name;
+      return norm;
     });
 
     const gateStatus = (payload.gate_status as Record<string, unknown>) || {};
     const gateDecision =
-      typeof gateStatus.decision === "string"
+      typeof payload.gate_decision === "string"
+        ? (payload.gate_decision as "GO" | "ADJUST" | "CRITICAL STOP")
+        : typeof gateStatus.decision === "string"
         ? (gateStatus.decision as "GO" | "ADJUST" | "CRITICAL STOP")
         : items.some((i) => i.status === "DEFECTIVE")
         ? "CRITICAL STOP"
         : "GO";
 
-    const defectsCount = items.filter((i) => i.status === "DEFECTIVE").length;
+    const defectsCount =
+      typeof payload.defects_count === "number"
+        ? payload.defects_count
+        : items.filter((i) => i.status === "DEFECTIVE").length;
     const passedCount = items.length - defectsCount;
 
     return {

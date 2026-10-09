@@ -608,7 +608,20 @@ export function normalizeInspectionResponse(
   fallbackPartId = `P-IMP-${Math.floor(1000 + Math.random() * 9000)}`,
   customRawImageUrl?: string
 ): InspectionItem {
-  const data = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
+  let data = (raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {}) as Record<string, unknown>;
+
+  // If this is a batch response from /api/inspect containing a 'results' array, extract the first or matching part
+  if (Array.isArray(data.results) && data.results.length > 0 && !data.defect_type && !data.status) {
+    const firstResult = data.results[0] as Record<string, unknown>;
+    data = {
+      ...firstResult,
+      batch_id: data.batch_id,
+      gate_decision: data.gate_decision,
+      gate_status: data.gate_status,
+      batch_analysis: data.batch_analysis,
+      supervisor_summary: data.supervisor_summary,
+    };
+  }
 
   // Check prediction key from backend
   const rawStatus = typeof data.status === "string" ? data.status.toLowerCase() : "";
@@ -741,20 +754,75 @@ export function normalizeInspectionResponse(
         };
   }
 
-  // Telemetry mapping
-  const telemetry: SensorTelemetry[] = isDefective
-    ? [
-        { id: "T-01", name: "Mold Core Temperature", unit: "°C", recordedValue: 741.2, nominalMin: 680.0, nominalMax: 710.0, nominalTarget: 695.0, delta: 31.2, isOutOfTolerance: true, status: "critical" },
-        { id: "T-02", name: "Die Injection Pressure", unit: "bar", recordedValue: 147.5, nominalMin: 155.0, nominalMax: 170.0, nominalTarget: 162.5, delta: -7.5, isOutOfTolerance: true, status: "warning" },
-        { id: "T-03", name: "Coolant Flow Rate", unit: "L/min", recordedValue: 18.2, nominalMin: 22.0, nominalMax: 26.0, nominalTarget: 24.0, delta: -3.8, isOutOfTolerance: true, status: "warning" },
-        { id: "T-04", name: "Casting Cycle Vibration", unit: "mm/s", recordedValue: 1.15, nominalMin: 0.20, nominalMax: 1.50, nominalTarget: 0.85, delta: 0.30, isOutOfTolerance: false, status: "nominal" },
-      ]
-    : [
-        { id: "T-01", name: "Mold Core Temperature", unit: "°C", recordedValue: 694.5, nominalMin: 680.0, nominalMax: 710.0, nominalTarget: 695.0, delta: -0.5, isOutOfTolerance: false, status: "nominal" },
-        { id: "T-02", name: "Die Injection Pressure", unit: "bar", recordedValue: 162.9, nominalMin: 155.0, nominalMax: 170.0, nominalTarget: 162.5, delta: 0.4, isOutOfTolerance: false, status: "nominal" },
-        { id: "T-03", name: "Coolant Flow Rate", unit: "L/min", recordedValue: 24.1, nominalMin: 22.0, nominalMax: 26.0, nominalTarget: 24.0, delta: 0.1, isOutOfTolerance: false, status: "nominal" },
-        { id: "T-04", name: "Casting Cycle Vibration", unit: "mm/s", recordedValue: 0.78, nominalMin: 0.20, nominalMax: 1.50, nominalTarget: 0.85, delta: -0.07, isOutOfTolerance: false, status: "nominal" },
-      ];
+  // Telemetry mapping (checks real backend telemetry dict or fallback defaults)
+  let telemetry: SensorTelemetry[] = [];
+  if (data.telemetry && typeof data.telemetry === "object") {
+    const rawTel = data.telemetry as Record<string, number>;
+    telemetry = [
+      {
+        id: "T-01",
+        name: "Mold Core Temperature",
+        unit: "°C",
+        recordedValue: typeof rawTel.mold_temp === "number" ? rawTel.mold_temp : 685.0,
+        nominalMin: 660.0,
+        nominalMax: 710.0,
+        nominalTarget: 685.0,
+        delta: typeof rawTel.mold_temp === "number" ? Math.round((rawTel.mold_temp - 685.0) * 10) / 10 : 0,
+        isOutOfTolerance: typeof rawTel.mold_temp === "number" ? rawTel.mold_temp < 660 || rawTel.mold_temp > 710 : false,
+        status: typeof rawTel.mold_temp === "number" && (rawTel.mold_temp < 660 || rawTel.mold_temp > 710) ? "critical" : "nominal",
+      },
+      {
+        id: "T-02",
+        name: "Die Injection Pressure",
+        unit: "bar",
+        recordedValue: typeof rawTel.injection_pressure === "number" ? rawTel.injection_pressure : 142.0,
+        nominalMin: 130.0,
+        nominalMax: 160.0,
+        nominalTarget: 142.0,
+        delta: typeof rawTel.injection_pressure === "number" ? Math.round((rawTel.injection_pressure - 142.0) * 10) / 10 : 0,
+        isOutOfTolerance: typeof rawTel.injection_pressure === "number" ? rawTel.injection_pressure < 130 || rawTel.injection_pressure > 160 : false,
+        status: typeof rawTel.injection_pressure === "number" && (rawTel.injection_pressure < 130 || rawTel.injection_pressure > 160) ? "critical" : "nominal",
+      },
+      {
+        id: "T-03",
+        name: "Coolant Loop Flow Rate",
+        unit: "L/min",
+        recordedValue: typeof rawTel.cooling_rate === "number" ? rawTel.cooling_rate : 12.0,
+        nominalMin: 10.0,
+        nominalMax: 16.0,
+        nominalTarget: 12.0,
+        delta: typeof rawTel.cooling_rate === "number" ? Math.round((rawTel.cooling_rate - 12.0) * 10) / 10 : 0,
+        isOutOfTolerance: typeof rawTel.cooling_rate === "number" ? rawTel.cooling_rate < 10 || rawTel.cooling_rate > 16 : false,
+        status: typeof rawTel.cooling_rate === "number" && (rawTel.cooling_rate < 10 || rawTel.cooling_rate > 16) ? "warning" : "nominal",
+      },
+      {
+        id: "T-04",
+        name: "Casting Cycle Vibration",
+        unit: "mm/s",
+        recordedValue: typeof rawTel.vibration === "number" ? rawTel.vibration : 1.2,
+        nominalMin: 0.20,
+        nominalMax: 2.0,
+        nominalTarget: 1.2,
+        delta: typeof rawTel.vibration === "number" ? Math.round((rawTel.vibration - 1.2) * 10) / 10 : 0,
+        isOutOfTolerance: typeof rawTel.vibration === "number" ? rawTel.vibration > 2.0 : false,
+        status: typeof rawTel.vibration === "number" && rawTel.vibration > 2.0 ? "warning" : "nominal",
+      },
+    ];
+  } else {
+    telemetry = isDefective
+      ? [
+          { id: "T-01", name: "Mold Core Temperature", unit: "°C", recordedValue: 741.2, nominalMin: 680.0, nominalMax: 710.0, nominalTarget: 695.0, delta: 31.2, isOutOfTolerance: true, status: "critical" },
+          { id: "T-02", name: "Die Injection Pressure", unit: "bar", recordedValue: 147.5, nominalMin: 155.0, nominalMax: 170.0, nominalTarget: 162.5, delta: -7.5, isOutOfTolerance: true, status: "warning" },
+          { id: "T-03", name: "Coolant Flow Rate", unit: "L/min", recordedValue: 18.2, nominalMin: 22.0, nominalMax: 26.0, nominalTarget: 24.0, delta: -3.8, isOutOfTolerance: true, status: "warning" },
+          { id: "T-04", name: "Casting Cycle Vibration", unit: "mm/s", recordedValue: 1.15, nominalMin: 0.20, nominalMax: 1.50, nominalTarget: 0.85, delta: 0.30, isOutOfTolerance: false, status: "nominal" },
+        ]
+      : [
+          { id: "T-01", name: "Mold Core Temperature", unit: "°C", recordedValue: 694.5, nominalMin: 680.0, nominalMax: 710.0, nominalTarget: 695.0, delta: -0.5, isOutOfTolerance: false, status: "nominal" },
+          { id: "T-02", name: "Die Injection Pressure", unit: "bar", recordedValue: 162.9, nominalMin: 155.0, nominalMax: 170.0, nominalTarget: 162.5, delta: 0.4, isOutOfTolerance: false, status: "nominal" },
+          { id: "T-03", name: "Coolant Flow Rate", unit: "L/min", recordedValue: 24.1, nominalMin: 22.0, nominalMax: 26.0, nominalTarget: 24.0, delta: 0.1, isOutOfTolerance: false, status: "nominal" },
+          { id: "T-04", name: "Casting Cycle Vibration", unit: "mm/s", recordedValue: 0.78, nominalMin: 0.20, nominalMax: 1.50, nominalTarget: 0.85, delta: -0.07, isOutOfTolerance: false, status: "nominal" },
+        ];
+  }
 
   const now = new Date();
   const timeString = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
