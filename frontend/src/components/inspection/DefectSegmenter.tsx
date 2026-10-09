@@ -682,11 +682,7 @@ export function DefectSegmenter({
                                     : "hover:scale-105"
                                 }`}
                               >
-                                <span
-                                  className={`w-1.5 h-1.5 rounded-full bg-white ${
-                                    inst.category === "defect" ? "animate-ping" : ""
-                                  }`}
-                                />
+                                <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0 inline-block" />
                                 <span>
                                   {inst.className}: {inst.confidence}%
                                 </span>
@@ -785,7 +781,7 @@ export function DefectSegmenter({
             {hasHeatmap && (
               <div className="px-2.5 py-1 rounded-md bg-[#1C1917]/85 border border-[#3E3834] backdrop-blur-md text-[10px] font-mono text-[#FAF8F5] flex items-center gap-1.5 shadow-lg">
                 <span
-                  className={`w-1.5 h-1.5 rounded-full animate-pulse inline-block ${
+                  className={`w-1.5 h-1.5 rounded-full inline-block ${
                     viewMode === "perception" ? "bg-[#38BDF8]" : "bg-[#EF4444]"
                   }`}
                 />

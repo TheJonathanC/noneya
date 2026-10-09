@@ -229,7 +229,13 @@ export function openPrintableBatchReport(data: BatchReportData) {
         <div style="page-break-inside: avoid; margin-top: 40px; padding-top: 16px; border-top: 1px solid #EAE4D7; display: flex; justify-content: space-between; font-size: 11px; color: #78716A;">
           <div>Certified Automated Quality Inspection Report • ISO 9001 Compliant</div>
           <div style="border-top: 1px solid #1C1917; width: 200px; text-align: center; padding-top: 4px;">Quality Supervisor Signature</div>
-        </div>
+        <script>
+          window.addEventListener('load', function() {
+            setTimeout(function() {
+              window.print();
+            }, 300);
+          });
+        </script>
       </body>
     </html>
   `;

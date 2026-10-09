@@ -9,16 +9,14 @@ import {
   RotateCcw,
   Printer,
   ShieldCheck,
-  ShieldAlert,
   Image as ImageIcon,
   Activity,
-  Gauge,
-  Clock,
   Check,
   FileText,
   Sliders,
   ChevronDown,
   ChevronUp,
+  TrendingUp,
 } from "lucide-react";
 import { InspectionItem } from "@/lib/inspection-adapter";
 import { InspectionError } from "@/lib/api";
@@ -61,27 +59,27 @@ export function LinenResults({
   errorState,
   onRetry,
 }: LinenResultsProps) {
-  // Primary Tabs State:
-  // For Defective parts: 'visual' (Image Forward) | 'report' | 'telemetry' | 'json'
-  // For OK parts:        'report' (All OK) | 'visual' | 'telemetry' | 'json'
+  // Navigation Tabs:
+  // Defective batch: 'report' (Batch Report) | 'visual' (Image) | 'telemetry' (Sensors) | 'json' (Details)
+  // OK batch:        'report' (Batch Report) | 'visual' (Image) | 'telemetry' (Sensors) | 'json' (Details)
   const [activeTabOverride, setActiveTabOverride] = useState<string | null>(null);
   const [lastPartId, setLastPartId] = useState<string | null>(null);
-  const [expandedPartIds, setExpandedPartIds] = useState<Record<string, boolean>>({});
+  const [expandedImageIds, setExpandedImageIds] = useState<Record<string, boolean>>({});
 
-  const togglePartExpand = (id: string) => {
-    setExpandedPartIds((prev) => ({
+  const toggleImageExpand = (id: string) => {
+    setExpandedImageIds((prev) => ({
       ...prev,
       [id]: !prev[id],
     }));
   };
 
-  // If operator switches active part in batch, reset tab override to default for that part
+  // If operator switches active image in batch, reset tab override
   if (activeItem && activeItem.id !== lastPartId) {
     setLastPartId(activeItem.id);
     setActiveTabOverride(null);
   }
 
-  // Loading State with Particle Swarm
+  // Loading State
   if (isLoading && !activeItem) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[#FAF8F5] text-center space-y-4">
@@ -144,7 +142,7 @@ export function LinenResults({
             Ready for Batch Intake
           </h2>
           <p className="text-xs text-[#78716A] leading-relaxed">
-            Select or drop component photos in the intake panel to start automated inspection. The pipeline evaluates surface contour, Grad-CAM defect localization, and process telemetry in parallel.
+            Select component photos in the intake panel to start automated inspection. The pipeline evaluates surface contour, Grad-CAM defect localization, and process telemetry in parallel.
           </p>
         </div>
 
@@ -171,11 +169,12 @@ export function LinenResults({
   }
 
   const isDefective = activeItem.status === "DEFECTIVE";
+  const anyDefectsInBatch = allItems.some((i) => i.status === "DEFECTIVE");
   const predictedDefects = activeItem.predictedDefects || [];
   const confidenceVal = Math.min(Math.max(activeItem.confidenceScore, 0), 100);
 
-  // Defaults: Defective -> 'visual' (Image Forward). OK -> 'report' (All OK data card).
-  const defaultTab = isDefective ? "visual" : "report";
+  // Default tab is 'report' so the operator sees the full batch report first, with quick access to 'visual'
+  const defaultTab = "report";
   const currentTab = activeTabOverride || defaultTab;
 
   const originalImg =
@@ -247,7 +246,7 @@ export function LinenResults({
   const defectiveItems = allItems.filter((item) => item.status === "DEFECTIVE");
   const passedItems = allItems.filter((item) => item.status === "PASSED");
 
-  // Handler for Exporting Formatted Batch PDF
+  // Handler for Exporting Formatted Batch PDF (directly triggers print dialog)
   const handlePrintPdf = () => {
     openPrintableBatchReport({
       batchId: effectiveBatchId,
@@ -265,52 +264,29 @@ export function LinenResults({
     });
   };
 
-  // Primary Top-Level Tabs (Operator friendly, non-technical)
-  const primaryTabs = isDefective
-    ? [
-        {
-          id: "visual",
-          label: "Image",
-          icon: ImageIcon,
-        },
-        {
-          id: "report",
-          label: "Batch Report",
-          icon: FileText,
-        },
-        {
-          id: "telemetry",
-          label: "Sensors",
-          icon: Activity,
-        },
-        {
-          id: "json",
-          label: "Details",
-          icon: Sliders,
-        },
-      ]
-    : [
-        {
-          id: "report",
-          label: "Batch Report",
-          icon: ShieldCheck,
-        },
-        {
-          id: "visual",
-          label: "Image",
-          icon: ImageIcon,
-        },
-        {
-          id: "telemetry",
-          label: "Sensors",
-          icon: Activity,
-        },
-        {
-          id: "json",
-          label: "Details",
-          icon: Sliders,
-        },
-      ];
+  // Primary Top-Level Tabs
+  const primaryTabs = [
+    {
+      id: "report",
+      label: "Batch Report",
+      icon: FileText,
+    },
+    {
+      id: "visual",
+      label: "Image",
+      icon: ImageIcon,
+    },
+    {
+      id: "telemetry",
+      label: "Sensors",
+      icon: Activity,
+    },
+    {
+      id: "json",
+      label: "Details",
+      icon: Sliders,
+    },
+  ];
 
   return (
     <div className="flex-1 flex flex-col bg-[#FAF8F5] overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-4">
@@ -318,25 +294,25 @@ export function LinenResults({
           UNIFIED OPERATOR STATUS & NAVIGATION BAR
       ========================================================================= */}
       <div className="bg-[#FFFFFF] border border-[#E5DFD3] rounded-2xl p-3 sm:p-3.5 shadow-xs flex flex-wrap items-center justify-between gap-3">
-        {/* Left: Clean Verdict Pill + Batch Part Selector */}
+        {/* Left: Defects Detected Status Pill + Image Selector */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Status Pill */}
+          {/* Status Pill: Clean solid dot, no flashing */}
           <div
             className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold border transition-colors ${
-              isDefective
+              anyDefectsInBatch
                 ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
                 : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
             }`}
           >
             <span
-              className={`w-2 h-2 rounded-full ${
-                isDefective ? "bg-[#EF4444] animate-pulse" : "bg-[#22C55E]"
+              className={`w-2 h-2 rounded-full shrink-0 ${
+                anyDefectsInBatch ? "bg-[#EF4444]" : "bg-[#22C55E]"
               }`}
             />
-            <span>{isDefective ? "Defect Detected" : "All Good • Part OK"}</span>
+            <span>{anyDefectsInBatch ? "Defects Detected" : "All Good • Batch OK"}</span>
           </div>
 
-          {/* Batch Selector (All parts, no single processing lock) */}
+          {/* Batch Selector (Labeled Image 1, Image 2, etc.) */}
           {isBatch && allItems.length > 1 && (
             <div className="flex items-center gap-1 bg-[#FAF8F5] p-1 rounded-xl border border-[#E5DFD3]">
               {allItems.map((item, idx) => {
@@ -355,7 +331,7 @@ export function LinenResults({
                     }`}
                   >
                     <span
-                      className={`w-1.5 h-1.5 rounded-full ${
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                         itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
                       }`}
                     />
@@ -422,7 +398,389 @@ export function LinenResults({
       </div>
 
       {/* =========================================================================
-          TAB 1: VISUAL DIAGNOSTICS (IMAGE FORWARD)
+          TAB 1: BATCH REPORT (EXECUTIVE SYNTHESIS & PER-IMAGE BREAKDOWN)
+          Shows the whole batch verdict, prediction, telemetry, and per-image details
+      ========================================================================= */}
+      {currentTab === "report" && (
+        <div className="space-y-5">
+          {/* Executive Whole-Batch Verdict Banner */}
+          <section
+            aria-label="Whole Batch Inspection Verdict"
+            className={`rounded-2xl border p-5 sm:p-6 space-y-4 shadow-xs ${
+              gateDecision === "CRITICAL STOP"
+                ? "border-[#FCA5A5] bg-[#FFF5F5]"
+                : gateDecision === "ADJUST"
+                ? "border-[#FDE68A] bg-[#FFFDF5]"
+                : "border-[#86EFAC] bg-[#F0FDF4]"
+            }`}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`p-2.5 rounded-xl border ${
+                    gateDecision === "CRITICAL STOP"
+                      ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                      : gateDecision === "ADJUST"
+                      ? "bg-[#FEF3C7] border-[#FDE68A] text-[#92400E]"
+                      : "bg-[#FFFFFF] border-[#86EFAC] text-[#166534]"
+                  }`}
+                >
+                  {gateDecision === "GO" ? (
+                    <CheckCircle2 className="w-6 h-6 text-[#16A34A]" />
+                  ) : (
+                    <AlertTriangle className="w-6 h-6 text-[#DC2626]" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-base font-extrabold text-[#1C1917]">
+                      Batch Gate Decision: {gateDecision}
+                    </span>
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#FFFFFF] border border-[#DDD5C7] text-[#57534E]">
+                      {effectiveBatchId}
+                    </span>
+                  </div>
+                  <p className="text-xs text-[#57534E] mt-0.5">
+                    {gateDecision === "GO"
+                      ? "All images verified nominal. The batch is cleared for downstream line release."
+                      : gateDecision === "ADJUST"
+                      ? "Process telemetry drift or defect detected. Apply setpoint adjustments before next run."
+                      : "Defect threshold exceeded. Assembly line halted for engineering review."}
+                  </p>
+                </div>
+              </div>
+
+              {/* Yield Pill & PDF Button */}
+              <div className="flex items-center gap-2">
+                <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFFFF] border border-[#DDD5C7] text-xs font-mono font-semibold text-[#1C1917]">
+                  Yield: {batchStats?.passed ?? passedItems.length} / {batchStats?.total ?? allItems.length} Passed
+                </div>
+                <button
+                  type="button"
+                  onClick={handlePrintPdf}
+                  className="px-3 py-1.5 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print PDF</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Supervisor Briefing (from Gemini LLM or Batch Engine) */}
+            {supervisorSummary && (
+              <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
+                <div className="font-semibold text-[#1C1917] flex items-center justify-between">
+                  <span>Supervisor Summary</span>
+                  {batchPrediction?.next_batch_risk !== undefined && (
+                    <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
+                      Next-Batch Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
+                    </span>
+                  )}
+                </div>
+                <p className="text-[#57534E] leading-relaxed">
+                  {supervisorSummary}
+                </p>
+              </div>
+            )}
+
+            {/* Probable Cause & Next-Batch Prediction Section */}
+            {(batchPrediction?.text || rootCauseAnalysisData) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Probable Cause Card */}
+                <div className="p-3.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
+                  <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-[#D97706]" />
+                    <span>Probable Root Cause</span>
+                  </div>
+                  <p className="text-[#57534E] leading-relaxed">
+                    {typeof rootCauseAnalysisData?.diagnostic_explanation === "string"
+                      ? rootCauseAnalysisData.diagnostic_explanation
+                      : typeof rootCauseAnalysisData?.probable_cause === "string"
+                      ? rootCauseAnalysisData.probable_cause
+                      : anyDefectsInBatch
+                      ? "Hydraulic ram injection pressure or melt temperature fluctuation outside nominal Six Sigma corridor."
+                      : "Process parameters stable within nominal tolerance bounds."}
+                  </p>
+                  {Boolean(rootCauseAnalysisData?.primary_culprit_sensor) && (
+                    <div className="text-[11px] font-mono text-[#991B1B] pt-1">
+                      Culprit: {String(rootCauseAnalysisData?.primary_culprit_sensor).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+
+                {/* Prediction: Will Problem Continue? */}
+                <div className="p-3.5 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
+                  <div className="font-bold text-[#1C1917] flex items-center gap-1.5">
+                    <TrendingUp className="w-3.5 h-3.5 text-[#1C1917]" />
+                    <span>Will Problem Continue? (Trend Prediction)</span>
+                  </div>
+                  <p className="text-[#57534E] leading-relaxed">
+                    {batchPrediction?.text ||
+                      (anyDefectsInBatch
+                        ? "High probability of recurring defect signatures on subsequent batches unless setpoint fixes are applied."
+                        : "Thermal and mechanical baselines indicate zero drift risk for upcoming cycles.")}
+                  </p>
+                  {batchPrediction?.next_batch_risk !== undefined && (
+                    <div className="text-[11px] font-semibold text-[#78350F] pt-1">
+                      Calculated Recurrence Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Batch Fixes */}
+            {batchFixes.length > 0 && (
+              <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#FDE68A] space-y-2 text-xs">
+                <div className="font-semibold text-[#92400E] flex items-center gap-1.5">
+                  <Sliders className="w-4 h-4 text-[#D97706]" />
+                  <span>Recommended Machine Setpoint Fixes ({batchFixes.length})</span>
+                </div>
+                <div className="space-y-1.5">
+                  {batchFixes.map((fix, idx) => (
+                    <div
+                      key={idx}
+                      className="p-2.5 rounded-lg bg-[#FFFDF5] border border-[#FDE68A] flex items-center justify-between text-xs gap-2"
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#D97706]" />
+                        <span className="font-medium text-[#1C1917]">{fix.instruction}</span>
+                      </div>
+                      {fix.current !== undefined && fix.target !== undefined && (
+                        <span className="font-mono text-[11px] text-[#78716A] tabular-nums shrink-0">
+                          {fix.current} → {fix.target} {fix.unit || ""}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Section: Batch Images Breakdown with Overlays & Probable Causes */}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
+                <span>Batch Images Breakdown</span>
+                <span className="text-xs font-mono text-[#78716A]">({allItems.length} images)</span>
+              </h3>
+              <span className="text-xs text-[#78716A]">
+                Showing defect status, visual overlays, and probable causes
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              {allItems.map((item, idx) => {
+                const itemDefective = item.status === "DEFECTIVE";
+                const isExpanded = expandedImageIds[item.id] ?? true; // expanded by default
+                const isCurrentActive = selectedIndex === idx;
+
+                const itemOrigImg =
+                  item.visionResults?.original_image_base64 ||
+                  item.visionResults?.original_url ||
+                  item.rawImageUrl;
+                const itemHeatImg =
+                  item.visionResults?.heatmap_image_base64 ||
+                  item.visionResults?.heatmap_png_url ||
+                  item.heatmapImageUrl;
+
+                const defectsList =
+                  item.predictedDefects && item.predictedDefects.length > 0
+                    ? item.predictedDefects.join(", ")
+                    : item.defectType || (itemDefective ? "Defect" : "Nominal");
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded-2xl border transition-all ${
+                      itemDefective
+                        ? "border-[#FCA5A5] bg-[#FFFFFF]"
+                        : "border-[#E5DFD3] bg-[#FFFFFF]"
+                    } ${isCurrentActive ? "ring-2 ring-[#1C1917]" : ""}`}
+                  >
+                    {/* Header Row */}
+                    <div
+                      onClick={() => toggleImageExpand(item.id)}
+                      className="p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none"
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span
+                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                            itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
+                          }`}
+                        />
+                        <div className="truncate">
+                          <span className="font-bold text-xs text-[#1C1917]">
+                            Image {idx + 1} ({item.partId})
+                          </span>
+                          <span className="text-[11px] text-[#78716A] ml-2">
+                            {item.fileName ? item.fileName : item.serialNumber}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                            itemDefective
+                              ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
+                              : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
+                          }`}
+                        >
+                          {itemDefective ? defectsList : "Pass • Nominal"}
+                        </span>
+
+                        <span className="font-mono text-xs text-[#57534E]">
+                          {Math.round(item.confidenceScore)}%
+                        </span>
+
+                        {isExpanded ? (
+                          <ChevronUp className="w-4 h-4 text-[#78716A]" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-[#78716A]" />
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Image Details Body */}
+                    {isExpanded && (
+                      <div className="px-4 pb-4 pt-1 border-t border-[#EAE4D7] space-y-3.5 text-xs">
+                        {/* Image Pairs: Original + Heatmap Side-by-Side */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716A]">
+                              Original Photo
+                            </span>
+                            <div className="aspect-4/3 rounded-xl border border-[#E5DFD3] bg-[#1C1917] overflow-hidden flex items-center justify-center">
+                              {itemOrigImg ? (
+                                <img
+                                  src={itemOrigImg}
+                                  alt={`Image ${idx + 1} original`}
+                                  className="w-full h-full object-contain"
+                                />
+                              ) : (
+                                <span className="text-[#A8A29E] text-xs">No image available</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="space-y-1.5">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716A]">
+                              Defect Localization Overlay (Grad-CAM)
+                            </span>
+                            <div className="aspect-4/3 rounded-xl border border-[#E5DFD3] bg-[#1C1917] overflow-hidden flex items-center justify-center relative">
+                              {itemOrigImg && (
+                                <img
+                                  src={itemOrigImg}
+                                  alt={`Image ${idx + 1} base`}
+                                  className="w-full h-full object-contain"
+                                />
+                              )}
+                              {itemHeatImg && (
+                                <img
+                                  src={itemHeatImg}
+                                  alt={`Image ${idx + 1} heatmap`}
+                                  className="w-full h-full object-contain absolute inset-0 mix-blend-screen opacity-90"
+                                />
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Diagnostic & Telemetry Attribution Strip */}
+                        <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EAE4D7] space-y-1.5 text-xs">
+                          <div>
+                            <strong className="text-[#1C1917]">Defect Status: </strong>
+                            <span className={itemDefective ? "text-[#991B1B] font-semibold" : "text-[#166534] font-semibold"}>
+                              {itemDefective ? defectsList : "Nominal Contour"}
+                            </span>
+                          </div>
+                          {item.rootCauseSummary && (
+                            <div className="text-[#57534E]">
+                              <strong className="text-[#1C1917]">Probable Cause / Note: </strong>
+                              {item.rootCauseSummary}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Button to Select this Image as Primary in Visual Tab */}
+                        <div className="flex items-center justify-end gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onSelectIndex(idx);
+                              setActiveTabOverride("visual");
+                            }}
+                            className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
+                          >
+                            Open in Full Visual Inspector →
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Section: Batch Telemetry Summary Table */}
+          <section className="space-y-3">
+            <h3 className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
+              <span>Batch Telemetry Baseline Summary</span>
+            </h3>
+            <div className="border border-[#E5DFD3] rounded-2xl overflow-hidden bg-[#FFFFFF]">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-[#FAF8F5] border-b border-[#EAE4D7] text-[10px] font-bold text-[#78716A] uppercase tracking-wider">
+                  <tr>
+                    <th className="p-3">Sensor Parameter</th>
+                    <th className="p-3 text-center">Nominal Target</th>
+                    <th className="p-3 text-center">Corridor</th>
+                    <th className="p-3 text-center">Recorded Value</th>
+                    <th className="p-3 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#EAE4D7]">
+                  {(activeItem.telemetry || []).map((t) => (
+                    <tr
+                      key={t.id}
+                      className={t.isOutOfTolerance ? "bg-[#FEF2F2]" : "hover:bg-[#FAF8F5]"}
+                    >
+                      <td className="p-3 font-semibold text-[#1C1917]">{t.name}</td>
+                      <td className="p-3 text-center font-mono text-[#57534E]">
+                        {t.nominalTarget} {t.unit}
+                      </td>
+                      <td className="p-3 text-center font-mono text-[#78716A]">
+                        {t.nominalMin} – {t.nominalMax} {t.unit}
+                      </td>
+                      <td
+                        className={`p-3 text-center font-mono font-bold ${
+                          t.isOutOfTolerance ? "text-[#991B1B]" : "text-[#1C1917]"
+                        }`}
+                      >
+                        {t.recordedValue} {t.unit}
+                      </td>
+                      <td className="p-3 text-right">
+                        <span
+                          className={`font-semibold text-[11px] ${
+                            t.isOutOfTolerance ? "text-[#991B1B]" : "text-[#166534]"
+                          }`}
+                        >
+                          {t.isOutOfTolerance ? "Out of Tolerance" : "Nominal"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {/* =========================================================================
+          TAB 2: VISUAL DIAGNOSTICS (IMAGE FORWARD)
       ========================================================================= */}
       {currentTab === "visual" && (
         <div className="space-y-3">
@@ -492,287 +850,6 @@ export function LinenResults({
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* =========================================================================
-          TAB 2: WHOLE BATCH QUALITY AUDIT & REPORT
-          Shows the report for the WHOLE batch first, with expandable details per part
-      ========================================================================= */}
-      {(currentTab === "audit" || currentTab === "report") && (
-        <div className="space-y-5">
-          {/* Executive Whole-Batch Verdict Banner */}
-          <section
-            aria-label="Whole Batch Inspection Verdict"
-            className={`rounded-2xl border p-5 sm:p-6 space-y-4 shadow-xs ${
-              gateDecision === "CRITICAL STOP"
-                ? "border-[#FCA5A5] bg-[#FFF5F5]"
-                : gateDecision === "ADJUST"
-                ? "border-[#FDE68A] bg-[#FFFDF5]"
-                : "border-[#86EFAC] bg-[#F0FDF4]"
-            }`}
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-2.5 rounded-xl border ${
-                    gateDecision === "CRITICAL STOP"
-                      ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                      : gateDecision === "ADJUST"
-                      ? "bg-[#FEF3C7] border-[#FDE68A] text-[#92400E]"
-                      : "bg-[#FFFFFF] border-[#86EFAC] text-[#166534]"
-                  }`}
-                >
-                  {gateDecision === "GO" ? (
-                    <CheckCircle2 className="w-6 h-6 text-[#16A34A]" />
-                  ) : (
-                    <AlertTriangle className="w-6 h-6 text-[#DC2626]" />
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-extrabold text-[#1C1917]">
-                      Batch Gate Decision: {gateDecision}
-                    </span>
-                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-md bg-[#FFFFFF] border border-[#DDD5C7] text-[#57534E]">
-                      {effectiveBatchId}
-                    </span>
-                  </div>
-                  <p className="text-xs text-[#57534E] mt-0.5">
-                    {gateDecision === "GO"
-                      ? "All parts verified nominal. The batch is cleared for downstream line release."
-                      : gateDecision === "ADJUST"
-                      ? "Process telemetry drift or moderate defect detected. Apply setpoint adjustments before next run."
-                      : "Critical defect rate exceeded threshold. Assembly line halted for engineering review."}
-                  </p>
-                </div>
-              </div>
-
-              {/* Yield Pill & PDF Button */}
-              <div className="flex items-center gap-2">
-                <div className="px-3.5 py-1.5 rounded-xl bg-[#FFFFFF] border border-[#DDD5C7] text-xs font-mono font-semibold text-[#1C1917]">
-                  Yield: {batchStats?.passed ?? passedItems.length} / {batchStats?.total ?? allItems.length} Passed
-                </div>
-                <button
-                  type="button"
-                  onClick={handlePrintPdf}
-                  className="px-3 py-1.5 rounded-xl bg-[#1C1917] hover:bg-[#2C2724] text-[#FAF8F5] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  <Printer className="w-3.5 h-3.5" />
-                  <span>Print PDF</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Supervisor Briefing (from Gemini LLM or Batch Engine) */}
-            {supervisorSummary && (
-              <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#EAE4D7] space-y-1.5 text-xs">
-                <div className="font-semibold text-[#1C1917] flex items-center justify-between">
-                  <span>Supervisor Summary</span>
-                  {batchPrediction?.next_batch_risk !== undefined && (
-                    <span className="font-mono text-[10px] px-2 py-0.5 rounded-full bg-[#FEF2F2] text-[#991B1B] border border-[#FCA5A5] font-semibold">
-                      Next-Batch Risk: {Math.round(batchPrediction.next_batch_risk * 100)}%
-                    </span>
-                  )}
-                </div>
-                <p className="text-[#57534E] leading-relaxed">
-                  {supervisorSummary}
-                </p>
-                {batchPrediction?.text && batchPrediction.text !== supervisorSummary && (
-                  <div className="pt-2 border-t border-[#EAE4D7] text-[#78350F]">
-                    <span className="font-semibold text-[#1C1917]">Risk Attribution: </span>
-                    {batchPrediction.text}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Batch Fixes */}
-            {batchFixes.length > 0 && (
-              <div className="p-4 rounded-xl bg-[#FFFFFF] border border-[#FDE68A] space-y-2 text-xs">
-                <div className="font-semibold text-[#92400E] flex items-center gap-1.5">
-                  <Sliders className="w-4 h-4 text-[#D97706]" />
-                  <span>Recommended Machine Setpoint Fixes ({batchFixes.length})</span>
-                </div>
-                <div className="space-y-1.5">
-                  {batchFixes.map((fix, idx) => (
-                    <div
-                      key={idx}
-                      className="p-2.5 rounded-lg bg-[#FFFDF5] border border-[#FDE68A] flex items-center justify-between text-xs gap-2"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-[#D97706]" />
-                        <span className="font-medium text-[#1C1917]">{fix.instruction}</span>
-                      </div>
-                      {fix.current !== undefined && fix.target !== undefined && (
-                        <span className="font-mono text-[11px] text-[#78716A] tabular-nums shrink-0">
-                          {fix.current} → {fix.target} {fix.unit || ""}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* Section: Expandable Parts Breakdown */}
-          <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-[#1C1917] flex items-center gap-2">
-                <span>Batch Images Breakdown</span>
-                <span className="text-xs font-mono text-[#78716A]">({allItems.length} images)</span>
-              </h3>
-              <span className="text-xs text-[#78716A]">
-                Click any image to expand its photos and defect analysis
-              </span>
-            </div>
-
-            <div className="space-y-2.5">
-              {allItems.map((item, idx) => {
-                const itemDefective = item.status === "DEFECTIVE";
-                const isExpanded = expandedPartIds[item.id] ?? (itemDefective || allItems.length <= 3);
-                const isCurrentActive = selectedIndex === idx;
-
-                const itemOrigImg =
-                  item.visionResults?.original_image_base64 ||
-                  item.visionResults?.original_url ||
-                  item.rawImageUrl;
-                const itemHeatImg =
-                  item.visionResults?.heatmap_image_base64 ||
-                  item.visionResults?.heatmap_png_url ||
-                  item.heatmapImageUrl;
-
-                return (
-                  <div
-                    key={item.id}
-                    className={`rounded-2xl border transition-all ${
-                      itemDefective
-                        ? "border-[#FCA5A5] bg-[#FFFFFF]"
-                        : "border-[#E5DFD3] bg-[#FFFFFF]"
-                    } ${isCurrentActive ? "ring-2 ring-[#1C1917]" : ""}`}
-                  >
-                    {/* Header Row */}
-                    <div
-                      onClick={() => togglePartExpand(item.id)}
-                      className="p-3.5 sm:p-4 flex items-center justify-between gap-3 cursor-pointer select-none"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span
-                          className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                            itemDefective ? "bg-[#EF4444]" : "bg-[#22C55E]"
-                          }`}
-                        />
-                        <div className="truncate">
-                          <span className="font-bold text-xs text-[#1C1917]">
-                            Image {idx + 1} ({item.partId})
-                          </span>
-                          <span className="text-[11px] text-[#78716A] ml-2">
-                            {item.fileName ? item.fileName : item.serialNumber}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
-                            itemDefective
-                              ? "bg-[#FEF2F2] border-[#FCA5A5] text-[#991B1B]"
-                              : "bg-[#F0FDF4] border-[#86EFAC] text-[#166534]"
-                          }`}
-                        >
-                          {itemDefective
-                            ? item.predictedDefects && item.predictedDefects.length > 0
-                              ? item.predictedDefects.join(", ")
-                              : item.defectType || "Defective"
-                            : "Pass • Nominal"}
-                        </span>
-
-                        <span className="font-mono text-xs text-[#57534E]">
-                          {Math.round(item.confidenceScore)}%
-                        </span>
-
-                        {isExpanded ? (
-                          <ChevronUp className="w-4 h-4 text-[#78716A]" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-[#78716A]" />
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Expandable Part Detail Body */}
-                    {isExpanded && (
-                      <div className="px-4 pb-4 pt-1 border-t border-[#EAE4D7] space-y-3.5 text-xs">
-                        {/* Image Pairs: Original + Heatmap Side-by-Side */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                          <div className="space-y-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716A]">
-                              Original Photo
-                            </span>
-                            <div className="aspect-4/3 rounded-xl border border-[#E5DFD3] bg-[#1C1917] overflow-hidden flex items-center justify-center">
-                              {itemOrigImg ? (
-                                <img
-                                  src={itemOrigImg}
-                                  alt={`Part ${idx + 1} original`}
-                                  className="w-full h-full object-contain"
-                                />
-                              ) : (
-                                <span className="text-[#A8A29E] text-xs">No image available</span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="space-y-1.5">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-[#78716A]">
-                              Grad-CAM Heatmap & Defects
-                            </span>
-                            <div className="aspect-4/3 rounded-xl border border-[#E5DFD3] bg-[#1C1917] overflow-hidden flex items-center justify-center relative">
-                              {itemOrigImg && (
-                                <img
-                                  src={itemOrigImg}
-                                  alt={`Part ${idx + 1} base`}
-                                  className="w-full h-full object-contain"
-                                />
-                              )}
-                              {itemHeatImg && (
-                                <img
-                                  src={itemHeatImg}
-                                  alt={`Part ${idx + 1} heatmap`}
-                                  className="w-full h-full object-contain absolute inset-0 mix-blend-screen opacity-90"
-                                />
-                              )}
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Part Summary Description */}
-                        {item.rootCauseSummary && (
-                          <div className="p-3 rounded-xl bg-[#FAF8F5] border border-[#EAE4D7] text-[#57534E]">
-                            <strong className="text-[#1C1917]">Diagnostic Note: </strong>
-                            {item.rootCauseSummary}
-                          </div>
-                        )}
-
-                        {/* Quick Button to Select this Part as Primary for deep tabs */}
-                        <div className="flex items-center justify-end gap-2 pt-1">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onSelectIndex(idx);
-                              setActiveTabOverride("visual");
-                            }}
-                            className="px-3 py-1.5 rounded-lg border border-[#DDD5C7] bg-[#FFFFFF] hover:bg-[#F3EFE6] text-[#1C1917] font-medium text-xs transition-colors cursor-pointer"
-                          >
-                            Open in Full Visual Inspector →
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </section>
         </div>
       )}
 
