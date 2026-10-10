@@ -96,7 +96,24 @@ export default function TelemetryDataPage() {
   };
 
   useEffect(() => {
-    fetchRecords();
+    let ignore = false;
+    const execute = async () => {
+      try {
+        const res = await fetch(`http://82.112.231.102/api/data/records?limit=${limit}`);
+        if (!ignore && res.ok) {
+          const json = await res.json();
+          setRecords(Array.isArray(json.records) ? json.records : []);
+        }
+      } catch {
+        // Fallback handled by state
+      } finally {
+        if (!ignore) setIsLoading(false);
+      }
+    };
+    void execute();
+    return () => {
+      ignore = true;
+    };
   }, [limit]);
 
   // Filtered & sorted records

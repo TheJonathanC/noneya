@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { RotateCcw, LayoutDashboard, PlayCircle, Database } from "lucide-react";
+import { GithubIcon } from "@/components/common/GithubIcon";
 
 interface LinenHeaderProps {
   onResetAll?: () => void;
@@ -92,18 +93,31 @@ export function LinenHeader({
           </Link>
         </nav>
 
-        {/* Action: Clean Reset button */}
-        {hasActiveInspection && onResetAll && (
-          <button
-            type="button"
-            onClick={onResetAll}
-            aria-label="New inspection"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FFFFFF] hover:bg-[#F3EFE6] border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] text-xs font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer shadow-xs"
+        {/* Right Actions */}
+        <div className="flex items-center gap-2">
+          {hasActiveInspection && onResetAll && (
+            <button
+              type="button"
+              onClick={onResetAll}
+              aria-label="New inspection"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#FFFFFF] hover:bg-[#F3EFE6] border border-[#DDD5C7] text-[#57534E] hover:text-[#1C1917] text-xs font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.97] cursor-pointer shadow-xs"
+            >
+              <RotateCcw aria-hidden="true" className="w-3.5 h-3.5 text-[#78716A]" />
+              <span>New Inspection</span>
+            </button>
+          )}
+
+          <a
+            href="https://github.com/TheJonathanC/noneya"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub repository"
+            title="GitHub repository"
+            className="inline-flex items-center justify-center p-2 rounded-lg text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] border border-[#E5DFD3] bg-white active:scale-[0.97] transition-[background-color,border-color,color,transform] duration-150 shadow-xs"
           >
-            <RotateCcw aria-hidden="true" className="w-3.5 h-3.5 text-[#78716A]" />
-            <span>New Inspection</span>
-          </button>
-        )}
+            <GithubIcon className="w-3.5 h-3.5" />
+          </a>
+        </div>
       </div>
     </header>
   );

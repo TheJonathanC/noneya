@@ -11,6 +11,7 @@ import {
   Server,
 } from "lucide-react";
 import { HeroSwarm } from "@/components/landing/HeroSwarm";
+import { GithubIcon } from "@/components/common/GithubIcon";
 
 const STAGES = [
   {
@@ -96,6 +97,16 @@ export default function LandingPage() {
             >
               Open dashboard
             </Link>
+            <a
+              href="https://github.com/TheJonathanC/noneya"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="GitHub repository"
+              title="GitHub repository"
+              className="inline-flex items-center justify-center p-2 rounded-lg text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] border border-[#E5DFD3] bg-white active:scale-[0.97] transition-[background-color,border-color,color,transform] duration-150 shadow-xs"
+            >
+              <GithubIcon className="w-4 h-4" />
+            </a>
           </nav>
         </div>
       </header>
@@ -292,6 +303,34 @@ export default function LandingPage() {
           </div>
         </section>
       </main>
+
+      {/* Footer */}
+      <footer className="border-t border-[#EAE4D7] bg-[#FAF8F5] py-8 px-5 sm:px-8 text-xs text-[#78716A]">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <span className="w-5 h-5 rounded-md bg-[#1C1917] flex items-center justify-center p-0.5 shrink-0">
+              <svg viewBox="0 0 32 32" fill="none" className="w-full h-full" aria-hidden="true">
+                <circle cx="15" cy="14.5" r="7" stroke="#FAF8F5" strokeWidth="2.75" />
+                <path d="M18.5 18L24 23.5" stroke="#FAF8F5" strokeWidth="2.75" strokeLinecap="round" />
+              </svg>
+            </span>
+            <span className="font-semibold text-[#1C1917]">Qastra</span>
+            <span className="text-[#D6D3D1]">·</span>
+            <span>Automated Component Quality Analysis</span>
+          </div>
+
+          <a
+            href="https://github.com/TheJonathanC/noneya"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="GitHub repository"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-[#E5DFD3] bg-white text-[#57534E] hover:text-[#1C1917] hover:bg-[#F3EFE6] active:scale-[0.97] transition-all font-mono text-[11px] shadow-xs"
+          >
+            <GithubIcon className="w-3.5 h-3.5" />
+            <span>TheJonathanC/noneya</span>
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }

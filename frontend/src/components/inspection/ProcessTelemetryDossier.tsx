@@ -222,6 +222,37 @@ function formatRecordTime(ts: unknown) {
   }
 }
 
+const STATIC_FALLBACK_RECORDS: Array<Record<string, unknown>> = Array.from({ length: 15 }, (_, i) => {
+  const baseTime = 1760000000000;
+  const time = new Date(baseTime - i * 110 * 1000).toISOString();
+  const isAnomCycle = i === 2 || i === 3;
+  return {
+    id: `rec-hist-${i}`,
+    batch_id: `BATCH-2026-X8${9 - Math.floor(i / 5)}`,
+    machine_id: "CAST-CELL-04",
+    timestamp: time,
+    classified_defect: isAnomCycle ? (i === 2 ? "porosity" : "crack") : "ok",
+    sensor_readings: {
+      mold_temp: Math.round((685.0 + (isAnomCycle ? 28.5 : Math.sin(i) * 6.5)) * 10) / 10,
+      injection_pressure: Math.round((142.0 + (isAnomCycle ? -14.2 : Math.cos(i) * 4.2)) * 10) / 10,
+      cooling_rate: Math.round((12.0 + (isAnomCycle ? 4.8 : Math.sin(i * 1.5) * 1.1)) * 10) / 10,
+      vibration: Math.round((1.2 + Math.cos(i * 2) * 0.25) * 10) / 10,
+      machine_speed: Math.round(1200 + Math.sin(i) * 22),
+      humidity: Math.round((42.0 + Math.cos(i) * 3.5) * 10) / 10,
+    },
+    root_cause: isAnomCycle
+      ? {
+          primary_culprit_sensor: i === 2 ? "mold_temp" : "cooling_rate",
+          z_score_deviation: i === 2 ? 2.1 : 2.7,
+          predicted_cause_defect: i === 2 ? "porosity" : "crack",
+        }
+      : {
+          primary_culprit_sensor: "none",
+          predicted_cause_defect: "ok",
+        },
+  };
+});
+
 export function ProcessTelemetryDossier({
   telemetry = [],
   rawTelemetry,
@@ -238,38 +269,7 @@ export function ProcessTelemetryDossier({
     if (mongoRecords.length > 0) {
       return mongoRecords;
     }
-    const fallbackList: Array<Record<string, unknown>> = [];
-    const baseTime = Date.now();
-    for (let i = 0; i < 15; i++) {
-      const time = new Date(baseTime - i * 110 * 1000).toISOString();
-      const isAnomCycle = i === 2 || i === 3;
-      fallbackList.push({
-        id: `rec-hist-${i}`,
-        batch_id: `BATCH-2026-X8${9 - Math.floor(i / 5)}`,
-        machine_id: "CAST-CELL-04",
-        timestamp: time,
-        classified_defect: isAnomCycle ? (i === 2 ? "porosity" : "crack") : "ok",
-        sensor_readings: {
-          mold_temp: Math.round((685.0 + (isAnomCycle ? 28.5 : Math.sin(i) * 6.5)) * 10) / 10,
-          injection_pressure: Math.round((142.0 + (isAnomCycle ? -14.2 : Math.cos(i) * 4.2)) * 10) / 10,
-          cooling_rate: Math.round((12.0 + (isAnomCycle ? 4.8 : Math.sin(i * 1.5) * 1.1)) * 10) / 10,
-          vibration: Math.round((1.2 + Math.cos(i * 2) * 0.25) * 10) / 10,
-          machine_speed: Math.round(1200 + Math.sin(i) * 22),
-          humidity: Math.round((42.0 + Math.cos(i) * 3.5) * 10) / 10,
-        },
-        root_cause: isAnomCycle
-          ? {
-              primary_culprit_sensor: i === 2 ? "mold_temp" : "cooling_rate",
-              z_score_deviation: i === 2 ? 2.1 : 2.7,
-              predicted_cause_defect: i === 2 ? "porosity" : "crack",
-            }
-          : {
-              primary_culprit_sensor: "none",
-              predicted_cause_defect: "ok",
-            },
-      });
-    }
-    return fallbackList;
+    return STATIC_FALLBACK_RECORDS;
   }, [mongoRecords]);
 
   // Fetch real historical telemetry records from MongoDB Atlas via Next.js proxy
